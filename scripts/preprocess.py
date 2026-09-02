@@ -47,21 +47,14 @@ DROPPED_CLASSES = {
     "Mystery",
     "Black-browed_Reed_Warbler",
     "Asian_Emerald_Cuckoo",
-}
-
-# Weak classes get 2.5s hop (more chunks from limited data)
-# Moderate classes get 2.5s hop too
-# Strong classes get 5.0s hop (no overlap, avoids leakage)
-WEAK_CLASSES = {
+    # Weak tier
     "White-tailed_Flycatcher",
     "Yellow-vented_Flowerpecker",
     "Grey-throated_Martin",
     "Cinnamon_Bittern",
     "Tickell's_Leaf_Warbler",
     "Blue-winged_Leafbird",
-}
-
-MODERATE_CLASSES = {
+    # Moderate tier
     "Yellow-browed_Warbler",
     "Yellow-throated_Leaf_Warbler",
     "Asian_Palm_Swift",
@@ -78,6 +71,9 @@ MODERATE_CLASSES = {
     "Ruddy_Kingfisher",
     "Cachar_Bulbul",
 }
+
+WEAK_CLASSES = set()       # empty — none left
+MODERATE_CLASSES = set()   # empty — none left
 
 TRAIN_RATIO = 0.80
 VAL_RATIO   = 0.10
