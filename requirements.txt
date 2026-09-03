@@ -20,3 +20,5 @@ onnxruntime>=1.18       # CPU inference; use onnxruntime-gpu for GPU
 
 # Utilities
 tqdm>=4.66
+
+onnxscript

@@ -103,8 +103,8 @@ class BirdSoundDataset(Dataset):
         # Augmentation (only for training)
         # self.spec_augment = SpecAugment() if augment else None
         self.spec_augment = SpecAugment(
-            freq_mask_max=40,   # was 27
-            time_mask_max=60,   # was 40
+            freq_mask_max=20,   # was 27
+            time_mask_max=40,   # was 40
             n_freq_masks=2,
             n_time_masks=2
         )
