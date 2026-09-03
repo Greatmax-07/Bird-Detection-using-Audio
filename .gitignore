@@ -33,3 +33,6 @@ env/
 
 # Logs
 *.log
+
+# project assets
+handoff.md
