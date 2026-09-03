@@ -1,1 +1,37 @@
 dataset/
+
+# Model checkpoints / trained weights
+checkpoints/
+checkpoints_v2/
+*.pt
+*.pth
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.temp
+temp.txt
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# project assets
+handoff.md

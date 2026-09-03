@@ -1,0 +1,24 @@
+# Bird Sound Classifier — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Audio
+librosa==0.10.2
+soundfile==0.12.1
+
+# ML
+torch>=2.3.0            # install the CUDA build from pytorch.org
+torchvision>=0.18.0
+torchaudio>=2.3.0
+
+# Data
+numpy>=1.26
+pandas>=2.2
+
+# Export / deployment
+onnx>=1.16
+onnxruntime>=1.18       # CPU inference; use onnxruntime-gpu for GPU
+
+# Utilities
+tqdm>=4.66
+
+onnxscript
