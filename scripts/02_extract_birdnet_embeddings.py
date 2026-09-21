@@ -47,6 +47,13 @@ from pathlib import Path
 import numpy as np
 from tqdm import tqdm
 
+import tensorflow as tf
+orig_init = tf.lite.Interpreter.__init__
+def patched_init(self, *args, **kwargs):
+    kwargs['experimental_preserve_all_tensors'] = True
+    orig_init(self, *args, **kwargs)
+tf.lite.Interpreter.__init__ = patched_init
+
 from birdnetlib import Recording
 from birdnetlib.analyzer import Analyzer
 
