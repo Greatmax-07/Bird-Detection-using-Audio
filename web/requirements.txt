@@ -1,6 +1,19 @@
-fastapi
-uvicorn
-onnxruntime
-librosa
-numpy
-python-multipart
+# ==============================================================================
+# BirdEar - Web Serving Dependencies
+# ==============================================================================
+# System requirement:
+#   Ubuntu/Debian: sudo apt update && sudo apt install -y ffmpeg
+#   Conda:         conda install -c conda-forge ffmpeg -y
+# ==============================================================================
+
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+onnxruntime>=1.18.0
+birdnetlib>=0.18.0
+tensorflow-cpu>=2.16.0
+audioread>=3.0.0
+resampy>=0.4.3
+librosa>=0.10.0
+soundfile>=0.12.1
+numpy>=1.26.0

@@ -1,12 +1,35 @@
-requests
-birdnetlib
-librosa
-soundfile
-numpy
-tqdm
-scikit-learn
-torch
-onnx
-onnxruntime
-onnxscript
-uvicorn
+# ==============================================================================
+# BirdEar - Project Dependencies
+# ==============================================================================
+# NOTE: System requirement for audio decoding:
+#   Ubuntu/Debian: sudo apt update && sudo apt install -y ffmpeg
+#   Conda:         conda install -c conda-forge ffmpeg -y
+#
+# Recommended Python version: Python 3.12 (via Conda or virtualenv)
+# ==============================================================================
+
+# --- Web Serving & Inference ---
+fastapi>=0.110.0
+uvicorn>=0.28.0
+python-multipart>=0.0.9
+onnxruntime>=1.18.0
+
+# --- Audio Processing & BirdNET Feature Extractor ---
+birdnetlib>=0.18.0
+tensorflow-cpu>=2.16.0
+audioread>=3.0.0
+resampy>=0.4.3
+librosa>=0.10.0
+soundfile>=0.12.1
+numpy>=1.26.0
+
+# --- Pipeline, Training & Evaluation ---
+torch>=2.2.0
+scikit-learn>=1.4.0
+pandas>=2.2.0
+tqdm>=4.66.0
+requests>=2.31.0
+
+# --- Model Serialization & Export ---
+onnx>=1.16.0
+onnxscript>=0.1.0

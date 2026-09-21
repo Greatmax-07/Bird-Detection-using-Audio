@@ -22,6 +22,7 @@ __pycache__/
 *.tmp
 *.temp
 temp.txt
+test.txt
 
 # OS / editor files
 .DS_Store

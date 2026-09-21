@@ -5,6 +5,12 @@ from typing import Optional
 
 import numpy as np
 import onnxruntime as ort
+import tensorflow as tf
+orig_init = tf.lite.Interpreter.__init__
+def patched_init(self, *args, **kwargs):
+    kwargs['experimental_preserve_all_tensors'] = True
+    orig_init(self, *args, **kwargs)
+tf.lite.Interpreter.__init__ = patched_init
 from birdnetlib import Recording
 from birdnetlib.analyzer import Analyzer
 from fastapi import FastAPI, UploadFile, File
@@ -71,36 +77,45 @@ async def predict(file: UploadFile = File(...)):
 
     suffix = ".wav" if filename.endswith(".wav") else ".mp3"
 
+    tmp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp_path = Path(tmp_file.name)
     try:
-        # birdnetlib's Recording needs a real file path, not an in-memory buffer,
-        # so the upload is written to a scratch file for the duration of the request.
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as tmp:
-            tmp.write(raw)
-            tmp.flush()
+        tmp_file.write(raw)
+        tmp_file.close()
 
-            recording = Recording(analyzer, tmp.name)
-            recording.extract_embeddings()
+        recording = Recording(analyzer, str(tmp_path))
+        recording.extract_embeddings()
 
-            if not recording.embeddings:
-                return JSONResponse(status_code=422, content={"error": "Could not process audio"})
+        if not recording.embeddings:
+            print("[WARN] No embeddings extracted from audio.")
+            return JSONResponse(status_code=422, content={"error": "No embeddings extracted from audio"})
 
-            all_probs = []
-            for seg in recording.embeddings:
-                vec = seg.get("embeddings") or seg.get("embedding")
-                if vec is None:
-                    continue
-                arr = np.asarray(vec, dtype=np.float32)[np.newaxis, :]  # (1, 1024)
-                outputs = session.run(None, {input_name: arr})
-                logits = np.asarray(outputs[0])  # (1, n_classes)
-                probs = softmax(logits)[0]
-                all_probs.append(probs)
+        all_probs = []
+        for seg in recording.embeddings:
+            vec = seg.get("embeddings") or seg.get("embedding")
+            if vec is None:
+                continue
+            arr = np.asarray(vec, dtype=np.float32)[np.newaxis, :]  # (1, 1024)
+            outputs = session.run(None, {input_name: arr})
+            logits = np.asarray(outputs[0])  # (1, n_classes)
+            probs = softmax(logits)[0]
+            all_probs.append(probs)
 
-            if not all_probs:
-                return JSONResponse(status_code=422, content={"error": "Could not process audio"})
+        if not all_probs:
+            print("[WARN] No valid segment probabilities generated.")
+            return JSONResponse(status_code=422, content={"error": "Could not compute probabilities"})
 
-            avg_probs = np.mean(np.stack(all_probs, axis=0), axis=0)
-    except Exception:
-        return JSONResponse(status_code=422, content={"error": "Could not process audio"})
+        avg_probs = np.mean(np.stack(all_probs, axis=0), axis=0)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(status_code=422, content={"error": f"Failed: {e}"})
+    finally:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
 
     top_indices = np.argsort(avg_probs)[::-1][:TOP_K]
     predictions = []
