@@ -1,4 +1,8 @@
+# dataset related files
 dataset/
+ibc53/
+xc_downloads/
+_excluded/
 
 # Model checkpoints / trained weights
 checkpoints/
