@@ -67,6 +67,18 @@ def main():
 
     dummy = torch.randn(1, args.embedding_dim)
 
+    #torch.onnx.export(
+    #    model,
+    #    dummy,
+    #    args.output,
+    #    export_params=True,
+    #    opset_version=17,
+    #    do_constant_folding=True,
+    #    input_names=["embedding"],
+    #    output_names=["logits"],
+    #    dynamic_axes={"embedding": {0: "batch_size"}, "logits": {0: "batch_size"}},
+    #)
+
     torch.onnx.export(
         model,
         dummy,
@@ -76,7 +88,11 @@ def main():
         do_constant_folding=True,
         input_names=["embedding"],
         output_names=["logits"],
-        dynamic_axes={"embedding": {0: "batch_size"}, "logits": {0: "batch_size"}},
+        dynamic_axes={
+            "embedding": {0: "batch_size"},
+            "logits": {0: "batch_size"},
+        },
+        dynamo=False,
     )
 
     onnx_model = onnx.load(args.output)

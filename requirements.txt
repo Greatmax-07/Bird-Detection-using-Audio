@@ -1,12 +1,26 @@
+# Core
 requests
-birdnetlib
+numpy==1.26.4
+tqdm
+
+# Audio
 librosa
 soundfile
-numpy
-tqdm
-scikit-learn
+
+# Machine Learning
 torch
-onnx
+scikit-learn
+
+# BirdNET
+birdnetlib
+tensorflow==2.15.0
+ml-dtypes==0.2.0
+protobuf==4.25.9
+
+# ONNX inference
 onnxruntime
-onnxscript
+
+# Web application
+fastapi
 uvicorn
+python-multipart
