@@ -39,3 +39,10 @@ env/
 
 # project assets
 handoff.md
+
+# Downloaded datasets
+xc_downloads/
+xc_maharashtra/
+_excluded/
+_excluded_andaman/
+_excluded_ne/
