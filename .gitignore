@@ -46,3 +46,8 @@ xc_maharashtra/
 _excluded/
 _excluded_andaman/
 _excluded_ne/
+
+# Generated ML features
+features/X.npy
+features/y.npy
+features/manifest.csv
