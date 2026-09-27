@@ -51,3 +51,6 @@ _excluded_ne/
 features/X.npy
 features/y.npy
 features/manifest.csv
+
+_excluded_non_mh/
+_excluded_xc_downloads/
