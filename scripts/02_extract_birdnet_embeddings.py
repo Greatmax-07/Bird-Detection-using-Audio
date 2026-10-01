@@ -45,6 +45,12 @@ import json
 from pathlib import Path
 
 import numpy as np
+import tensorflow as tf
+orig_init = tf.lite.Interpreter.__init__
+def patched_init(self, *args, **kwargs):
+    kwargs['experimental_preserve_all_tensors'] = True
+    orig_init(self, *args, **kwargs)
+tf.lite.Interpreter.__init__ = patched_init
 from tqdm import tqdm
 
 from birdnetlib import Recording
@@ -88,6 +94,7 @@ def main():
     print(f"Found {len(items)} audio files across {len(classes)} classes.")
 
     analyzer = Analyzer()  # loads the BirdNET-Analyzer model once, reused for every file
+    analyzer.interpreter.allocate_tensors()
 
     X, y, manifest_rows = [], [], []
     failures = 0
