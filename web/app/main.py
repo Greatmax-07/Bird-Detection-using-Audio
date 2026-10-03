@@ -3,10 +3,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+import joblib
 import numpy as np
-import onnxruntime as ort
 import tensorflow as tf
-
 
 # ============================================================
 # TensorFlow Lite compatibility patch
@@ -48,18 +47,17 @@ from fastapi.staticfiles import StaticFiles
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-# web/app/main.py
-#        ↑
-# BASE_DIR = web/app
+# main.py is:
+# project_root/web/app/main.py
 #
 # Therefore:
-# BASE_DIR / ".." / ".." = project root
-#
-# If bird_classifier.onnx is in the project root, use this.
+# BASE_DIR.parent.parent = project root
+
 PROJECT_ROOT = BASE_DIR.parent.parent
 
-MODEL_PATH = PROJECT_ROOT / "bird_classifier.onnx"
-CLASSES_PATH = PROJECT_ROOT / "bird_classifier.classes.json"
+MODEL_PATH = PROJECT_ROOT / "features" / "recording_svm.pkl"
+WINDOW_MODEL_PATH = PROJECT_ROOT / "features" / "window_svm.pkl"
+LABEL_MAP_PATH = PROJECT_ROOT / "features" / "label_map.json"
 
 
 # ============================================================
@@ -68,6 +66,9 @@ CLASSES_PATH = PROJECT_ROOT / "bird_classifier.classes.json"
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 TOP_K = 5
+
+BIRDNET_EMBEDDING_DIM = 1024
+RECORDING_EMBEDDING_DIM = 3072
 
 
 # ============================================================
@@ -90,11 +91,9 @@ app.add_middleware(
 # Global model objects
 # ============================================================
 
-session: Optional[ort.InferenceSession] = None
-input_name: Optional[str] = None
-
-classes: dict[str, str] = {}
-
+model = None
+window_model = None
+classes: dict[int, str] = {}
 analyzer: Optional[Analyzer] = None
 
 
@@ -104,8 +103,8 @@ analyzer: Optional[Analyzer] = None
 
 @app.on_event("startup")
 def load_model() -> None:
-    global session
-    global input_name
+    global model
+    global window_model
     global classes
     global analyzer
 
@@ -115,67 +114,101 @@ def load_model() -> None:
     print("=" * 60)
 
     # --------------------------------------------------------
-    # Check classifier model
+    # Check model files
     # --------------------------------------------------------
 
     print(f"[INFO] Project root : {PROJECT_ROOT}")
     print(f"[INFO] Classifier   : {MODEL_PATH}")
-    print(f"[INFO] Classes      : {CLASSES_PATH}")
+    print(f"[INFO] Label map    : {LABEL_MAP_PATH}")
+    print(f"[INFO] Window model : {WINDOW_MODEL_PATH}")
 
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
             f"Classifier model not found:\n{MODEL_PATH}"
         )
 
-    if not CLASSES_PATH.exists():
+    if not WINDOW_MODEL_PATH.exists():
         raise FileNotFoundError(
-            f"Class map not found:\n{CLASSES_PATH}"
+            f"Window model not found:\n{WINDOW_MODEL_PATH}"
         )
 
-    print(f"[INFO] Model size   : {MODEL_PATH.stat().st_size / 1024:.2f} KB")
+    if not LABEL_MAP_PATH.exists():
+        raise FileNotFoundError(
+            f"Label map not found:\n{LABEL_MAP_PATH}"
+        )
 
-    # --------------------------------------------------------
-    # Load ONNX classifier
-    # --------------------------------------------------------
-
-    print("[INFO] Loading ONNX classifier...")
-
-    session = ort.InferenceSession(
-        str(MODEL_PATH),
-        providers=["CPUExecutionProvider"],
+    print(
+        f"[INFO] Model size   : "
+        f"{MODEL_PATH.stat().st_size / 1024:.2f} KB"
     )
 
-    inputs = session.get_inputs()
-    outputs = session.get_outputs()
-
-    if not inputs:
-        raise RuntimeError("ONNX model has no inputs.")
-
-    if not outputs:
-        raise RuntimeError("ONNX model has no outputs.")
-
-    input_name = inputs[0].name
-
-    print("[INFO] ONNX classifier loaded successfully.")
-    print(f"[INFO] Input name   : {input_name}")
-    print(f"[INFO] Input shape  : {inputs[0].shape}")
-    print(f"[INFO] Input type   : {inputs[0].type}")
-    print(f"[INFO] Output name  : {outputs[0].name}")
-    print(f"[INFO] Output shape : {outputs[0].shape}")
-
     # --------------------------------------------------------
-    # Load class mapping
+    # Load trained SVMs
     # --------------------------------------------------------
 
-    with open(CLASSES_PATH, "r", encoding="utf-8") as f:
-        classes = json.load(f)
+    print("[INFO] Loading recording-level SVM...")
+
+    model = joblib.load(MODEL_PATH)
+
+    print("[INFO] Recording-level SVM loaded successfully.")
+
+    print("[INFO] Loading window-level SVM...")
+
+    window_model = joblib.load(WINDOW_MODEL_PATH)
+
+    print("[INFO] Window-level SVM loaded successfully.")
+
+    # --------------------------------------------------------
+    # Validate recording SVM input dimension
+    # --------------------------------------------------------
+
+    if hasattr(model, "n_features_in_"):
+        print(
+            f"[INFO] Model input  : "
+            f"{model.n_features_in_} dimensions"
+        )
+
+        if model.n_features_in_ != RECORDING_EMBEDDING_DIM:
+            raise RuntimeError(
+                "SVM input dimension mismatch. "
+                f"Expected {RECORDING_EMBEDDING_DIM}, "
+                f"got {model.n_features_in_}."
+            )
+
+    # --------------------------------------------------------
+    # Load label map
+    #
+    # Stored format:
+    #
+    # {
+    #     "Ashy_Drongo": 0,
+    #     "Ashy_Prinia": 1,
+    #     ...
+    # }
+    #
+    # Convert to:
+    #
+    # {
+    #     0: "Ashy_Drongo",
+    #     1: "Ashy_Prinia",
+    #     ...
+    # }
+    # --------------------------------------------------------
+
+    with open(LABEL_MAP_PATH, "r", encoding="utf-8") as f:
+        label_map = json.load(f)
+
+    classes = {
+        int(class_id): class_name
+        for class_name, class_id in label_map.items()
+    }
 
     print(f"[INFO] Classes loaded: {len(classes)}")
 
-    if len(classes) != 48:
+    if len(classes) != 83:
         print(
-            f"[WARN] Expected 48 classes, "
-            f"but class map contains {len(classes)}."
+            f"[WARN] Expected 83 classes, "
+            f"but label map contains {len(classes)}."
         )
 
     # --------------------------------------------------------
@@ -186,8 +219,7 @@ def load_model() -> None:
 
     analyzer = Analyzer()
 
-    # This is important for the BirdNET embedding extraction
-    # used by this project.
+    # Required for embedding extraction used by this project.
     analyzer.interpreter.allocate_tensors()
 
     print("[INFO] BirdNET loaded successfully.")
@@ -204,14 +236,38 @@ def load_model() -> None:
 
 def softmax(x: np.ndarray) -> np.ndarray:
     """
-    Convert classifier logits into probabilities.
+    Convert SVM decision scores into relative confidence scores.
+
+    NOTE:
+    These are NOT calibrated probabilities.
+    They are normalized scores used for ranking predictions.
     """
 
-    x = x - np.max(x, axis=-1, keepdims=True)
+    x = np.asarray(x, dtype=np.float64)
 
-    e = np.exp(x)
+    x = x - np.max(x)
 
-    return e / np.sum(e, axis=-1, keepdims=True)
+    exp_x = np.exp(x)
+
+    return exp_x / np.sum(exp_x)
+
+
+# ============================================================
+# Normalize rows
+# ============================================================
+
+def l2_normalize_rows(x: np.ndarray) -> np.ndarray:
+    """
+    L2-normalize each row independently.
+    """
+
+    norms = np.linalg.norm(
+        x,
+        axis=1,
+        keepdims=True,
+    )
+
+    return x / np.maximum(norms, 1e-12)
 
 
 # ============================================================
@@ -222,6 +278,230 @@ def softmax(x: np.ndarray) -> np.ndarray:
 def serve_index():
     return FileResponse(STATIC_DIR / "index.html")
 
+def detect_species_events(
+    segment_data,
+    window_svm,
+    classes,
+    window_size=5,
+    step_size=2,
+    confidence_threshold=0.05,
+    top_n=1,
+    merge_gap_seconds=2.0
+):
+    if not segment_data:
+        return []
+
+    embeddings = np.asarray(
+        [item["embedding"] for item in segment_data],
+        dtype=np.float32
+    )
+
+    # Normalize each BirdNET segment embedding
+    norms = np.linalg.norm(
+        embeddings,
+        axis=1,
+        keepdims=True
+    )
+    embeddings = embeddings / np.maximum(norms, 1e-12)
+
+    # Create temporal windows
+    if len(segment_data) < window_size:
+        window_ranges = [(0, len(segment_data))]
+    else:
+        window_ranges = [
+            (start, start + window_size)
+            for start in range(
+                0,
+                len(segment_data) - window_size + 1,
+                step_size
+            )
+        ]
+
+    detections_by_species = {}
+    max_window_confidence = 0.0
+
+    for start_idx, end_idx in window_ranges:
+
+        window_embeddings = embeddings[start_idx:end_idx]
+
+        # Same 3072-D pooling used during window-SVM training
+        mean_embedding = np.mean(
+            window_embeddings,
+            axis=0
+        )
+
+        max_embedding = np.max(
+            window_embeddings,
+            axis=0
+        )
+
+        std_embedding = np.std(
+            window_embeddings,
+            axis=0
+        )
+
+        pooled_embedding = np.concatenate(
+            [
+                mean_embedding,
+                max_embedding,
+                std_embedding
+            ]
+        )
+
+        pooled_norm = np.linalg.norm(pooled_embedding)
+
+        if pooled_norm > 0:
+            pooled_embedding = (
+                pooled_embedding / pooled_norm
+            )
+
+        pooled_embedding = pooled_embedding.reshape(1, -1)
+
+        # Window-level classifier
+        probabilities = window_svm.predict_proba(
+            pooled_embedding
+        )[0]
+
+        top_indices = np.argsort(probabilities)[::-1][:5]
+
+        print(
+            "[DEBUG] Top-5:",
+            [
+                (
+                    classes.get(
+                        int(window_svm.classes_[i]),
+                        f"Unknown_{window_svm.classes_[i]}"
+                    ).replace("_", " "),
+                    f"{probabilities[i]:.2%}"
+                )
+                for i in top_indices
+            ]
+        )
+
+        window_start = float(
+            segment_data[start_idx]["start_time"]
+        )
+
+        window_end = float(
+            segment_data[end_idx - 1]["end_time"]
+        )
+
+        for index in top_indices:
+
+            confidence = float(
+                probabilities[index]
+            )
+
+            max_window_confidence = max(
+                max_window_confidence,
+                confidence
+            )
+
+            if confidence < confidence_threshold:
+                print(
+                f"[DEBUG] Window {window_start:.2f}-{window_end:.2f}s "
+                f"top confidence={confidence:.2%} -> rejected"
+            )
+                continue
+
+            class_id = int(
+                window_svm.classes_[index]
+            )
+
+            species = classes.get(
+                class_id,
+                f"Unknown_{class_id}"
+            )
+
+            species = species.replace("_", " ")
+
+            if species not in detections_by_species:
+                detections_by_species[species] = []
+
+            detections_by_species[species].append(
+                {
+                    "start_time": window_start,
+                    "end_time": window_end,
+                    "confidence": confidence
+                }
+            )
+
+    # Merge overlapping/nearby detections
+    print(
+        f"[DEBUG] Maximum window confidence: "
+        f"{max_window_confidence:.2%}"
+    )
+    species_events = []
+
+    for species, detections in detections_by_species.items():
+
+        detections.sort(
+            key=lambda x: x["start_time"]
+        )
+
+        merged_events = []
+
+        for detection in detections:
+
+            if not merged_events:
+                merged_events.append(
+                    {
+                        "start_time": detection["start_time"],
+                        "end_time": detection["end_time"],
+                        "confidence": detection["confidence"],
+                        "windows": 1
+                    }
+                )
+                continue
+
+            current = merged_events[-1]
+
+            if (
+                detection["start_time"]
+                <= current["end_time"] + merge_gap_seconds
+            ):
+                current["end_time"] = max(
+                    current["end_time"],
+                    detection["end_time"]
+                )
+
+                current["confidence"] = max(
+                    current["confidence"],
+                    detection["confidence"]
+                )
+
+                current["windows"] += 1
+
+            else:
+                merged_events.append(
+                    {
+                        "start_time": detection["start_time"],
+                        "end_time": detection["end_time"],
+                        "confidence": detection["confidence"],
+                        "windows": 1
+                    }
+                )
+
+        species_events.append(
+            {
+                "species": species,
+                "event_count": len(merged_events),
+                "estimated_count": len(merged_events),
+                "confidence": max(
+                    event["confidence"]
+                    for event in merged_events
+                ),
+                "events": merged_events
+            }
+        )
+
+    # Highest-confidence species first
+    species_events.sort(
+        key=lambda x: x["confidence"],
+        reverse=True
+    )
+
+    return species_events
 
 # ============================================================
 # Prediction endpoint
@@ -237,19 +517,17 @@ async def predict(file: UploadFile = File(...)):
     if analyzer is None:
         return JSONResponse(
             status_code=500,
-            content={"error": "BirdNET model is not loaded."},
+            content={
+                "error": "BirdNET model is not loaded."
+            },
         )
 
-    if session is None:
+    if model is None:
         return JSONResponse(
             status_code=500,
-            content={"error": "Classifier model is not loaded."},
-        )
-
-    if input_name is None:
-        return JSONResponse(
-            status_code=500,
-            content={"error": "Classifier input is not initialized."},
+            content={
+                "error": "Classifier model is not loaded."
+            },
         )
 
     # --------------------------------------------------------
@@ -265,8 +543,10 @@ async def predict(file: UploadFile = File(...)):
         return JSONResponse(
             status_code=422,
             content={
-                "error": "Could not process audio. "
-                         "Only WAV and MP3 files are supported."
+                "error": (
+                    "Could not process audio. "
+                    "Only WAV and MP3 files are supported."
+                )
             },
         )
 
@@ -280,33 +560,44 @@ async def predict(file: UploadFile = File(...)):
     print("-" * 60)
     print("[PREDICT] New audio received")
     print(f"[PREDICT] Filename : {file.filename}")
-    print(f"[PREDICT] Size     : {len(raw) / 1024:.2f} KB")
+    print(
+        f"[PREDICT] Size     : "
+        f"{len(raw) / 1024:.2f} KB"
+    )
 
     if len(raw) == 0:
         return JSONResponse(
             status_code=422,
-            content={"error": "Uploaded audio file is empty."},
+            content={
+                "error": "Uploaded audio file is empty."
+            },
         )
 
     if len(raw) > MAX_UPLOAD_BYTES:
         return JSONResponse(
             status_code=422,
-            content={"error": "Audio file is too large."},
+            content={
+                "error": "Audio file is too large."
+            },
         )
 
     # --------------------------------------------------------
-    # Determine temporary file extension
+    # Temporary file extension
     # --------------------------------------------------------
 
-    suffix = ".wav" if filename.endswith(".wav") else ".mp3"
+    suffix = (
+        ".wav"
+        if filename.endswith(".wav")
+        else ".mp3"
+    )
 
     tmp_path = None
 
     try:
 
-        # ----------------------------------------------------
+        # ====================================================
         # Save uploaded audio temporarily
-        # ----------------------------------------------------
+        # ====================================================
 
         tmp_file = tempfile.NamedTemporaryFile(
             suffix=suffix,
@@ -318,13 +609,17 @@ async def predict(file: UploadFile = File(...)):
         tmp_file.write(raw)
         tmp_file.close()
 
-        print(f"[PREDICT] Temporary file: {tmp_path}")
+        print(
+            f"[PREDICT] Temporary file: {tmp_path}"
+        )
 
-        # ----------------------------------------------------
-        # BirdNET
-        # ----------------------------------------------------
+        # ====================================================
+        # BirdNET embedding extraction
+        # ====================================================
 
-        print("[PREDICT] Extracting BirdNET embeddings...")
+        print(
+            "[PREDICT] Extracting BirdNET embeddings..."
+        )
 
         recording = Recording(
             analyzer,
@@ -332,29 +627,32 @@ async def predict(file: UploadFile = File(...)):
         )
 
         recording.extract_embeddings()
-
         print(
             f"[PREDICT] BirdNET segments: "
             f"{len(recording.embeddings)}"
         )
 
         if not recording.embeddings:
-
-            print("[WARN] No embeddings extracted.")
+            print(
+                "[WARN] No embeddings extracted."
+            )
 
             return JSONResponse(
                 status_code=422,
                 content={
-                    "error": "No BirdNET embeddings could be "
-                             "extracted from the audio."
+                    "error": (
+                        "No BirdNET embeddings could "
+                        "be extracted from the audio."
+                    )
                 },
             )
 
-        # ----------------------------------------------------
-        # Classify every BirdNET segment
-        # ----------------------------------------------------
+        # ====================================================
+        # Collect all 1024-D segment embeddings
+        # ====================================================
 
-        all_probs = []
+        segment_vectors = []
+        segment_data = []
 
         for segment_number, seg in enumerate(
             recording.embeddings,
@@ -366,8 +664,8 @@ async def predict(file: UploadFile = File(...)):
             #
             # vec = seg.get("embeddings") or seg.get("embedding")
             #
-            # because NumPy arrays cannot safely be evaluated
-            # as booleans.
+            # because NumPy arrays cannot safely be
+            # evaluated as booleans.
 
             vec = seg.get("embeddings")
 
@@ -381,111 +679,221 @@ async def predict(file: UploadFile = File(...)):
                 )
                 continue
 
-            # ------------------------------------------------
-            # Convert to NumPy
-            # ------------------------------------------------
-
             arr = np.asarray(
                 vec,
                 dtype=np.float32,
-            )
+            ).reshape(-1)
 
-            # Make sure it is exactly one 1024-D vector.
-            arr = arr.reshape(1, -1)
-
-            print(
-                f"[PREDICT] Segment {segment_number}: "
-                f"embedding shape = {arr.shape}"
-            )
-
-            # ------------------------------------------------
-            # Validate embedding dimension
-            # ------------------------------------------------
-
-            if arr.shape[1] != 1024:
-
+            if arr.shape[0] != BIRDNET_EMBEDDING_DIM:
                 print(
-                    f"[ERROR] Expected 1024-dimensional "
-                    f"embedding, got {arr.shape[1]}"
+                    f"[ERROR] Segment {segment_number}: "
+                    f"expected {BIRDNET_EMBEDDING_DIM}-D "
+                    f"embedding, got {arr.shape[0]}."
                 )
 
                 return JSONResponse(
                     status_code=500,
                     content={
                         "error": (
-                            "BirdNET embedding dimension mismatch. "
-                            f"Expected 1024, got {arr.shape[1]}."
+                            "BirdNET embedding dimension "
+                            "mismatch. "
+                            f"Expected {BIRDNET_EMBEDDING_DIM}, "
+                            f"got {arr.shape[0]}."
                         )
                     },
                 )
+            start_time = seg.get("start_time")
+            end_time = seg.get("end_time")
 
-            # ------------------------------------------------
-            # Run trained classifier
-            # ------------------------------------------------
+            if start_time is None or end_time is None:
+                print(
+                    f"Segment {segment_number}: "
+                    "missing timestamp"
+                )
+                continue
+            segment_vectors.append(arr)
 
-            outputs = session.run(
-                None,
+            segment_data.append(
                 {
-                    input_name: arr
-                },
+                    "start_time": float(start_time),
+                    "end_time": float(end_time),
+                    "embedding": arr
+                }
             )
 
-            logits = np.asarray(
-                outputs[0],
-                dtype=np.float32,
-            )
+        # ====================================================
+        # Make sure valid embeddings exist
+        # ====================================================
 
+        if not segment_vectors:
             print(
-                f"[PREDICT] Segment {segment_number}: "
-                f"classifier output shape = {logits.shape}"
-            )
-
-            # ------------------------------------------------
-            # Convert logits → probabilities
-            # ------------------------------------------------
-
-            probs = softmax(logits)[0]
-
-            all_probs.append(probs)
-
-        # ----------------------------------------------------
-        # Make sure at least one segment worked
-        # ----------------------------------------------------
-
-        if not all_probs:
-
-            print(
-                "[WARN] No valid classifier predictions "
-                "were generated."
+                "[WARN] No valid BirdNET embeddings "
+                "were found."
             )
 
             return JSONResponse(
                 status_code=422,
                 content={
-                    "error": "Could not compute predictions."
+                    "error": (
+                        "Could not obtain valid BirdNET "
+                        "embeddings from the audio."
+                    )
+                },
+            )
+
+
+        # ====================================================
+        # Build segment matrix
+        #
+        # Shape:
+        #     (number_of_segments, 1024)
+        # ====================================================
+
+        segment_matrix = np.vstack(
+            segment_vectors
+        ).astype(np.float32)
+
+        print(
+            f"[PREDICT] Valid embeddings: "
+            f"{segment_matrix.shape[0]}"
+        )
+
+        print(
+            f"[PREDICT] Segment embedding shape: "
+            f"{segment_matrix.shape}"
+        )
+
+        # ====================================================
+        # EXACT SAME PREPROCESSING USED DURING TRAINING
+        #
+        # 1. L2-normalize every segment
+        # 2. Mean pooling
+        # 3. Max pooling
+        # 4. Std pooling
+        # 5. Concatenate
+        # 6. L2-normalize final recording vector
+        # ====================================================
+
+        # ----------------------------------------------------
+        # 1. L2-normalize every segment
+        # ----------------------------------------------------
+
+        segment_matrix = l2_normalize_rows(
+            segment_matrix
+        )
+
+        # ----------------------------------------------------
+        # 2. Mean pooling
+        # ----------------------------------------------------
+
+        mean_embedding = np.mean(
+            segment_matrix,
+            axis=0,
+        )
+
+        # ----------------------------------------------------
+        # 3. Max pooling
+        # ----------------------------------------------------
+
+        max_embedding = np.max(
+            segment_matrix,
+            axis=0,
+        )
+
+        # ----------------------------------------------------
+        # 4. Standard deviation pooling
+        # ----------------------------------------------------
+
+        std_embedding = np.std(
+            segment_matrix,
+            axis=0,
+        )
+
+        # ----------------------------------------------------
+        # 5. Concatenate
+        #
+        # 1024 + 1024 + 1024 = 3072
+        # ----------------------------------------------------
+
+        recording_embedding = np.concatenate(
+            [
+                mean_embedding,
+                max_embedding,
+                std_embedding,
+            ]
+        ).astype(np.float32)
+
+        if (
+            recording_embedding.shape[0]
+            != RECORDING_EMBEDDING_DIM
+        ):
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": (
+                        "Recording embedding dimension "
+                        "mismatch. "
+                        f"Expected {RECORDING_EMBEDDING_DIM}, "
+                        f"got {recording_embedding.shape[0]}."
+                    )
                 },
             )
 
         # ----------------------------------------------------
-        # Average predictions across audio segments
+        # 6. L2-normalize final recording embedding
         # ----------------------------------------------------
 
-        avg_probs = np.mean(
-            np.stack(all_probs, axis=0),
-            axis=0,
+        recording_norm = np.linalg.norm(
+            recording_embedding
+        )
+
+        recording_embedding = (
+            recording_embedding
+            / max(recording_norm, 1e-12)
         )
 
         print(
-            f"[PREDICT] Averaged {len(all_probs)} "
-            f"segment predictions."
+            "[PREDICT] Recording embedding shape: "
+            f"{recording_embedding.shape}"
         )
 
-        # ----------------------------------------------------
+        # ====================================================
+        # SVM prediction
+        # ====================================================
+
+        model_input = recording_embedding.reshape(
+            1,
+            -1,
+        )
+
+        # Get probability estimates from the trained SVC.
+        confidence_scores = model.predict_proba(
+            model_input
+        )[0]
+
+        confidence_scores = np.asarray(
+            confidence_scores,
+            dtype=np.float64,
+        )
+
+        # For the current 83-class SVM this should be
+        # (83,).
+        if confidence_scores.ndim != 1:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": (
+                        "Unexpected SVM probability shape: "
+                        f"{confidence_scores.shape}"
+                    )
+                },
+            )
+        # ====================================================
         # Top-K predictions
-        # ----------------------------------------------------
+        # ====================================================
 
         top_indices = np.argsort(
-            avg_probs
+            confidence_scores
         )[::-1][:TOP_K]
 
         predictions = []
@@ -494,9 +902,14 @@ async def predict(file: UploadFile = File(...)):
 
             idx = int(idx)
 
+            # SVC class ordering is represented by
+            # model.classes_. Since training labels are
+            # 0..82, the class ID maps directly here.
+            class_id = int(model.classes_[idx])
+
             species = classes.get(
-                str(idx),
-                f"Unknown_{idx}",
+                class_id,
+                f"Unknown_{class_id}",
             )
 
             predictions.append(
@@ -506,14 +919,14 @@ async def predict(file: UploadFile = File(...)):
                         " ",
                     ),
                     "confidence": float(
-                        avg_probs[idx]
+                        confidence_scores[idx]
                     ),
                 }
             )
 
-        # ----------------------------------------------------
-        # Print final prediction to terminal
-        # ----------------------------------------------------
+        # ====================================================
+        # Print final prediction
+        # ====================================================
 
         print("[PREDICT] Final predictions:")
 
@@ -521,22 +934,43 @@ async def predict(file: UploadFile = File(...)):
             predictions,
             start=1,
         ):
-
             print(
                 f"  {rank}. "
                 f"{prediction['species']} "
                 f"({prediction['confidence'] * 100:.2f}%)"
             )
+        print("[PREDICT] Detecting temporal species events...")
+
+        species_detected = detect_species_events(
+            segment_data=segment_data,
+            window_svm=window_model,
+            classes=classes,
+            window_size=5,
+            step_size=2,
+            confidence_threshold=0.20,
+            top_n=1,
+            merge_gap_seconds=2.0
+        )
+
+        print("[PREDICT] Detected species events:")
+
+        for species in species_detected:
+            print(
+                f"  - {species['species']}: "
+                f"{species['event_count']} event(s), "
+                f"confidence={species['confidence']:.2%}"
+            )
 
         print("-" * 60)
         print()
 
-        # ----------------------------------------------------
+        # ====================================================
         # Return JSON to frontend
-        # ----------------------------------------------------
+        # ====================================================
 
         return {
-            "predictions": predictions
+            "predictions": predictions,
+            "species_detected": species_detected
         }
 
     except Exception as e:
@@ -551,15 +985,17 @@ async def predict(file: UploadFile = File(...)):
         return JSONResponse(
             status_code=422,
             content={
-                "error": f"Failed to process audio: {str(e)}"
+                "error": (
+                    f"Failed to process audio: {str(e)}"
+                )
             },
         )
 
     finally:
 
-        # ----------------------------------------------------
+        # ====================================================
         # Delete temporary audio file
-        # ----------------------------------------------------
+        # ====================================================
 
         if tmp_path is not None:
 
@@ -571,8 +1007,8 @@ async def predict(file: UploadFile = File(...)):
             except Exception as cleanup_error:
 
                 print(
-                    f"[WARN] Could not delete temporary file: "
-                    f"{cleanup_error}"
+                    "[WARN] Could not delete temporary "
+                    f"file: {cleanup_error}"
                 )
 
 

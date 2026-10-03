@@ -1,367 +1,424 @@
-"""
-03_train_classifier_head.py
-=============================
-Trains a small MLP classifier head on top of the frozen BirdNET embeddings
-produced by script 02. Since the backbone (BirdNET) is already pretrained,
-this head is tiny and fast to train, and far less prone to overfitting your
-minority classes than training a CNN from scratch would be.
-
-Uses focal loss instead of plain cross-entropy, since focal loss down-
-weights easy majority-class examples and concentrates gradient on
-hard/minority examples -- generally a bigger win than class weighting
-alone on long-tailed datasets like this one.
-
-Install:
-    pip install torch scikit-learn numpy
-
-Usage:
-    python 03_train_classifier_head.py --features_dir ./features
-"""
-
-import argparse
+import os
 import json
-from pathlib import Path
-
+import argparse
 import numpy as np
-import torch
-import torch.nn as nn
-from sklearn.metrics import classification_report, confusion_matrix
+import pandas as pd
+
 from sklearn.model_selection import train_test_split
-from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import normalize
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score
+)
+from sklearn.svm import SVC
 
 
-class FocalLoss(nn.Module):
-    """Standard multi-class focal loss (Lin et al., 2017)."""
+def parse_args():
+    parser = argparse.ArgumentParser()
 
-    def __init__(self, gamma=2.0, weight=None):
-        super().__init__()
-        self.gamma = gamma
-        self.weight = weight
+    parser.add_argument("--features_dir", type=str, default="features")
 
-    def forward(self, logits, targets):
-        log_probs = torch.log_softmax(logits, dim=-1)
-        probs = log_probs.exp()
+    parser.add_argument("--C", type=float, default=10.0)
+    parser.add_argument("--gamma", type=str, default="scale")
 
-        target_log_probs = (
-            log_probs.gather(1, targets.unsqueeze(1)).squeeze(1)
+    parser.add_argument("--test_frac", type=float, default=0.2)
+    parser.add_argument("--seed", type=int, default=42)
+
+    return parser.parse_args()
+
+
+def aggregate_recordings(X, y, manifest):
+    """
+    Convert segment-level BirdNET embeddings into
+    one embedding per original recording.
+
+    For each recording:
+        1. collect all segment embeddings
+        2. L2-normalize each embedding
+        3. average the normalized embeddings
+        4. L2-normalize the final recording embedding
+    """
+
+    manifest = manifest.copy()
+
+    required_columns = [
+        "filepath",
+        "class"
+    ]
+
+    for column in required_columns:
+        if column not in manifest.columns:
+            raise ValueError(
+                f"manifest.csv is missing required column: {column}"
+            )
+
+    if len(X) != len(y) or len(X) != len(manifest):
+        raise ValueError(
+            f"Length mismatch:\n"
+            f"X: {len(X)}\n"
+            f"y: {len(y)}\n"
+            f"manifest: {len(manifest)}"
         )
-        target_probs = (
-            probs.gather(1, targets.unsqueeze(1)).squeeze(1)
+
+    recording_embeddings = []
+    recording_labels = []
+    recording_paths = []
+
+    grouped = manifest.groupby("filepath", sort=False)
+
+    for filepath, indices in grouped.groups.items():
+
+        indices = np.asarray(list(indices))
+
+        recording_X = X[indices]
+
+        # Normalize each segment embedding
+        recording_X = normalize(
+            recording_X,
+            norm="l2",
+            axis=1
         )
 
-        focal_term = (1 - target_probs) ** self.gamma
-        loss = -focal_term * target_log_probs
+        # Mean + max + standard deviation pooling
+        mean_embedding = np.mean(recording_X, axis=0)
+        max_embedding = np.max(recording_X, axis=0)
+        std_embedding = np.std(recording_X, axis=0)
 
-        if self.weight is not None:
-            loss = loss * self.weight[targets]
-
-        return loss.mean()
-
-
-class ClassifierHead(nn.Module):
-    def __init__(self, in_dim, n_classes, hidden=256, dropout=0.3):
-        super().__init__()
-
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden, n_classes),
+        recording_embedding = np.concatenate(
+            [mean_embedding, max_embedding, std_embedding]
         )
 
-    def forward(self, x):
-        return self.net(x)
+        # Normalize final recording embedding
+        recording_embedding = normalize(
+            recording_embedding.reshape(1, -1),
+            norm="l2"
+        )[0]
+
+        recording_embeddings.append(recording_embedding)
+
+        # Every segment from one recording must have the same label
+        recording_labels.append(y[indices[0]])
+        recording_paths.append(filepath)
+
+    X_recordings = np.asarray(
+        recording_embeddings,
+        dtype=np.float32
+    )
+
+    y_recordings = np.asarray(
+        recording_labels,
+        dtype=np.int64
+    )
+
+    recording_paths = np.asarray(
+        recording_paths,
+        dtype=object
+    )
+
+    return X_recordings, y_recordings, recording_paths
 
 
 def main():
-    ap = argparse.ArgumentParser()
 
-    ap.add_argument(
-        "--features_dir",
-        default="./features",
-    )
-    ap.add_argument(
-        "--epochs",
-        type=int,
-        default=40,
-    )
-    ap.add_argument(
-        "--batch_size",
-        type=int,
-        default=64,
-    )
-    ap.add_argument(
-        "--lr",
-        type=float,
-        default=1e-3,
-    )
-    ap.add_argument(
-        "--val_frac",
-        type=float,
-        default=0.2,
+    args = parse_args()
+
+    features_dir = args.features_dir
+
+    X_path = os.path.join(
+        features_dir,
+        "X.npy"
     )
 
-    args = ap.parse_args()
+    y_path = os.path.join(
+        features_dir,
+        "y.npy"
+    )
 
-    feat_dir = Path(args.features_dir)
+    label_map_path = os.path.join(
+        features_dir,
+        "label_map.json"
+    )
 
-    # ------------------------------------------------------------------
-    # Load BirdNET embeddings and labels
-    # ------------------------------------------------------------------
-    X = np.load(feat_dir / "X.npy")
-    y = np.load(feat_dir / "y.npy")
+    manifest_path = os.path.join(
+        features_dir,
+        "manifest.csv"
+    )
 
-    with open(feat_dir / "label_map.json") as f:
+    print("=" * 70)
+    print("BIRD SPECIES CLASSIFICATION")
+    print("Recording-Level BirdNET Classifier")
+    print("=" * 70)
+
+    # ---------------------------------------------------------
+    # LOAD DATA
+    # ---------------------------------------------------------
+
+    print("\nLoading data...")
+
+    X = np.load(X_path)
+    y = np.load(y_path)
+
+    with open(label_map_path, "r", encoding="utf-8") as f:
         label_map = json.load(f)
 
-    # label_map is expected to be:
-    #   {"Class_Name": integer_id, ...}
-    inv_label_map = {v: k for k, v in label_map.items()}
-    class_names = [
-        inv_label_map[i]
-        for i in range(len(label_map))
-    ]
+    manifest = pd.read_csv(manifest_path)
 
-    print(f"Loaded {len(X)} embeddings")
+    print(f"Segment embeddings: {len(X)}")
     print(f"Embedding dimension: {X.shape[1]}")
-    print(f"Number of classes: {len(class_names)}")
+    print(f"Original classes: {len(label_map)}")
+    print(f"Manifest rows: {len(manifest)}")
 
-    # ------------------------------------------------------------------
-    # Stratified train/validation split
-    # ------------------------------------------------------------------
-    X_train, X_val, y_train, y_val = train_test_split(
+    # ---------------------------------------------------------
+    # AGGREGATE SEGMENTS INTO RECORDINGS
+    # ---------------------------------------------------------
+
+    print("\nAggregating embeddings by recording...")
+
+    X_rec, y_rec, paths = aggregate_recordings(
         X,
         y,
-        test_size=args.val_frac,
-        stratify=y,
-        random_state=42,
+        manifest
     )
 
-    print(f"Training samples:   {len(X_train)}")
-    print(f"Validation samples: {len(X_val)}")
+    print(f"Unique recordings: {len(X_rec)}")
+    print(f"Recording embedding dimension: {X_rec.shape[1]}")
 
-    # ------------------------------------------------------------------
-    # Device
-    # ------------------------------------------------------------------
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    # ---------------------------------------------------------
+    # VERIFY LABEL CONSISTENCY
+    # ---------------------------------------------------------
 
-    print(f"Using device: {device}")
+    print("\nChecking recording labels...")
 
-    # ------------------------------------------------------------------
-    # Inverse-frequency class weights
-    # ------------------------------------------------------------------
-    counts = np.bincount(
-        y_train,
-        minlength=len(class_names),
-    )
+    inconsistent_recordings = 0
 
-    class_weights = torch.tensor(
-        counts.sum() / (counts + 1e-6),
-        dtype=torch.float32,
-    ).to(device)
+    for filepath, indices in manifest.groupby("filepath").groups.items():
 
-    class_weights = (
-        class_weights / class_weights.mean()
-    )
+        indices = np.asarray(list(indices))
 
-    # ------------------------------------------------------------------
-    # Datasets and loaders
-    # ------------------------------------------------------------------
-    train_ds = TensorDataset(
-        torch.tensor(X_train, dtype=torch.float32),
-        torch.tensor(y_train, dtype=torch.long),
-    )
+        labels = np.unique(y[indices])
 
-    val_ds = TensorDataset(
-        torch.tensor(X_val, dtype=torch.float32),
-        torch.tensor(y_val, dtype=torch.long),
-    )
-
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=args.batch_size,
-        shuffle=True,
-    )
-
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=args.batch_size,
-    )
-
-    # ------------------------------------------------------------------
-    # Model
-    # ------------------------------------------------------------------
-    model = ClassifierHead(
-        in_dim=X.shape[1],
-        n_classes=len(class_names),
-    ).to(device)
-
-    criterion = FocalLoss(
-        gamma=2.0,
-        weight=class_weights,
-    )
-
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=args.lr,
-        weight_decay=1e-4,
-    )
-
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
-    best_val_loss = float("inf")
-
-    for epoch in range(1, args.epochs + 1):
-        model.train()
-
-        train_loss = 0.0
-
-        for xb, yb in train_loader:
-            xb = xb.to(device)
-            yb = yb.to(device)
-
-            optimizer.zero_grad()
-
-            logits = model(xb)
-            loss = criterion(logits, yb)
-
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item() * xb.size(0)
-
-        train_loss /= len(train_ds)
-
-        # --------------------------------------------------------------
-        # Validation
-        # --------------------------------------------------------------
-        model.eval()
-
-        val_loss = 0.0
-
-        with torch.no_grad():
-            for xb, yb in val_loader:
-                xb = xb.to(device)
-                yb = yb.to(device)
-
-                logits = model(xb)
-                loss = criterion(logits, yb)
-
-                val_loss += loss.item() * xb.size(0)
-
-        val_loss /= len(val_ds)
-
-        # --------------------------------------------------------------
-        # Save best checkpoint
-        # --------------------------------------------------------------
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-
-            torch.save(
-                model.state_dict(),
-                feat_dir / "classifier_head_best.pt",
-            )
-
-        if epoch % 5 == 0 or epoch == 1:
+        if len(labels) != 1:
+            inconsistent_recordings += 1
             print(
-                f"epoch {epoch:3d}  "
-                f"train_loss {train_loss:.4f}  "
-                f"val_loss {val_loss:.4f}"
+                f"[WARNING] Multiple labels found for: {filepath}"
             )
 
-    # ------------------------------------------------------------------
-    # Final validation using best checkpoint
-    # ------------------------------------------------------------------
-    model.load_state_dict(
-        torch.load(
-            feat_dir / "classifier_head_best.pt",
-            map_location=device,
+    if inconsistent_recordings == 0:
+        print("All recordings have consistent labels.")
+    else:
+        raise ValueError(
+            f"Found {inconsistent_recordings} recordings "
+            f"with inconsistent labels."
         )
+
+    # ---------------------------------------------------------
+    # RECORDING-LEVEL TRAIN / VALIDATION SPLIT
+    # ---------------------------------------------------------
+
+    print("\nCreating recording-level split...")
+
+    (
+        X_train,
+        X_val,
+        y_train,
+        y_val,
+        paths_train,
+        paths_val
+    ) = train_test_split(
+        X_rec,
+        y_rec,
+        paths,
+        test_size=args.test_frac,
+        random_state=args.seed,
+        stratify=y_rec
     )
 
-    model.eval()
+    # ---------------------------------------------------------
+    # VERIFY NO RECORDING LEAKAGE
+    # ---------------------------------------------------------
 
-    with torch.no_grad():
-        val_tensor = torch.tensor(
-            X_val,
-            dtype=torch.float32,
-        ).to(device)
+    train_paths = set(paths_train)
+    val_paths = set(paths_val)
 
-        preds = (
-            model(val_tensor)
-            .argmax(dim=1)
-            .cpu()
-            .numpy()
+    overlap = train_paths.intersection(val_paths)
+
+    print(f"\nTraining recordings:   {len(train_paths)}")
+    print(f"Validation recordings: {len(val_paths)}")
+    print(f"Recording overlap:     {len(overlap)}")
+
+    if len(overlap) != 0:
+        raise RuntimeError(
+            "Recording leakage detected!"
         )
 
-    # ------------------------------------------------------------------
-    # Classification report
-    # ------------------------------------------------------------------
-    print("\n=== Per-class validation report ===")
+    # ---------------------------------------------------------
+    # TRAIN SVM
+    # ---------------------------------------------------------
 
+    print("\nTraining SVM...")
+    print(f"C = {args.C}")
+    print(f"gamma = {args.gamma}")
+
+    model = SVC(
+        C=args.C,
+        gamma=args.gamma,
+        kernel="rbf",
+        class_weight="balanced",
+        probability=True,
+        random_state=args.seed
+    )
+
+    model.fit(
+        X_train,
+        y_train
+    )
+
+    print("Training complete.")
+
+    # ---------------------------------------------------------
+    # VALIDATION
+    # ---------------------------------------------------------
+
+    print("\nRunning validation...")
+
+    y_pred = model.predict(X_val)
+
+    accuracy = accuracy_score(
+        y_val,
+        y_pred
+    )
+
+    macro_f1 = f1_score(
+        y_val,
+        y_pred,
+        average="macro",
+        zero_division=0
+    )
+
+    weighted_f1 = f1_score(
+        y_val,
+        y_pred,
+        average="weighted",
+        zero_division=0
+    )
+
+    print("\n" + "=" * 70)
+    print("RESULTS")
+    print("=" * 70)
+
+    print(f"\nAccuracy:    {accuracy:.4f}")
+    print(f"Macro F1:    {macro_f1:.4f}")
+    print(f"Weighted F1: {weighted_f1:.4f}")
+
+    # ---------------------------------------------------------
+    # CLASSIFICATION REPORT
+    # ---------------------------------------------------------
+
+    if isinstance(label_map, dict):
+    # Handle either {"0": "species"} or {"species": 0}
+        if all(str(i) in label_map for i in range(len(label_map))):
+            class_names = [
+                label_map[str(i)]
+                for i in range(len(label_map))
+            ]
+        else:
+            class_names = [
+                name
+                for name, _ in sorted(
+                    label_map.items(),
+                    key=lambda item: item[1]
+                )
+            ]
+    else:
+        raise ValueError("Unexpected label_map format.")
+
+    print("\nClassification Report:")
     print(
         classification_report(
             y_val,
-            preds,
+            y_pred,
+            labels=np.arange(len(class_names)),
             target_names=class_names,
-            zero_division=0,
+            zero_division=0
         )
     )
 
-    print(
-        f"Best model saved to "
-        f"{feat_dir / 'classifier_head_best.pt'}"
+    # ---------------------------------------------------------
+    # SAVE MODEL
+    # ---------------------------------------------------------
+
+    import joblib
+
+    model_path = os.path.join(
+        features_dir,
+        "recording_svm.pkl"
     )
 
-    # ------------------------------------------------------------------
-    # Confusion matrix
-    # ------------------------------------------------------------------
-    cm = confusion_matrix(
-        y_val,
-        preds,
-        labels=np.arange(len(class_names)),
+    joblib.dump(
+        model,
+        model_path
     )
 
-    print("\n=== Top confusions for the weakest classes ===")
+    print(f"\nModel saved to:")
+    print(model_path)
 
-    for name in [
-        "Humes_Bar-tailed_Scimitar_Babbler",
-    ]:
-        if name not in label_map:
-            print(
-                f"\n{name}: not present in label_map, skipping."
-            )
-            continue
+    # ---------------------------------------------------------
+    # SAVE VALIDATION PREDICTIONS
+    # ---------------------------------------------------------
 
-        idx = label_map[name]
+    results = pd.DataFrame({
+        "filepath": paths_val,
+        "true_label": y_val,
+        "predicted_label": y_pred
+    })
 
-        row = cm[idx].copy()
+    class_names = [
+    name
+    for name, class_id in sorted(
+        label_map.items(),
+        key=lambda item: item[1]
+    )
+    ]
 
-        # Remove correct predictions.
-        row[idx] = 0
+    results["true_class"] = results["true_label"].map(
+        lambda x: class_names[int(x)]
+    )
 
-        top = row.argsort()[::-1][:3]
+    results["predicted_class"] = results["predicted_label"].map(
+        lambda x: class_names[int(x)]
+    )
 
-        print(
-            f"\n{name} (true label) most often predicted as:"
-        )
+    results_path = os.path.join(
+        features_dir,
+        "recording_validation_predictions.csv"
+    )
 
-        found_confusion = False
+    results.to_csv(
+        results_path,
+        index=False
+    )
 
-        for target_idx in top:
-            if row[target_idx] > 0:
-                found_confusion = True
+    print(f"Validation predictions saved to:")
+    print(results_path)
 
-                print(
-                    f"  {class_names[target_idx]:35s} "
-                    f"{row[target_idx]} times"
-                )
+    # ---------------------------------------------------------
+    # SUMMARY
+    # ---------------------------------------------------------
 
-        if not found_confusion:
-            print("  No incorrect predictions.")
+    print("\n" + "=" * 70)
+    print("SUMMARY")
+    print("=" * 70)
+
+    print(f"Recordings:       {len(X_rec)}")
+    print(f"Classes:          {len(class_names)}")
+    print(f"Train recordings: {len(X_train)}")
+    print(f"Val recordings:   {len(X_val)}")
+    print(f"Accuracy:         {accuracy:.2%}")
+    print(f"Macro F1:         {macro_f1:.4f}")
+    print(f"Weighted F1:      {weighted_f1:.4f}")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

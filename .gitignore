@@ -40,3 +40,7 @@ env/
 
 # project assets
 handoff.md
+
+# model files and extracted training embeddings, except the label map
+features/*
+!features/label_map.json

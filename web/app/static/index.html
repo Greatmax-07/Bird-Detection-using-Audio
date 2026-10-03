@@ -314,6 +314,13 @@
       <div class="description" id="top-description"></div>
     </div>
     <div class="other-preds" id="other-preds"></div>
+    <div id="detected-section" style="display:none; margin-top:24px; padding-top:20px; border-top:1px solid #3a3f52;">
+      <div style="font-size:18px; font-weight:700; margin-bottom:14px;">
+        Species Detected
+      </div>
+      <div id="detected-species"></div>
+    </div>
+
   </div>
 
   <button id="retry-btn" style="display:none;">Try another</button>
@@ -337,6 +344,8 @@
   const topConfidence = document.getElementById('top-confidence');
   const topDescription = document.getElementById('top-description');
   const otherPreds = document.getElementById('other-preds');
+  const detectedSection = document.getElementById('detected-section');
+  const detectedSpecies = document.getElementById('detected-species');
 
   let selectedFile = null;
   let mediaRecorder = null;
@@ -460,47 +469,123 @@
     }
   }
 
-  function renderResults(predictions) {
-    const top = predictions[0];
-    topSpecies.textContent = top.species;
-    topConfidence.textContent = `${Math.round(top.confidence * 100)}% confident`;
-    topDescription.textContent = '';
+  function renderResults(predictions, speciesDetected) {
 
-    otherPreds.innerHTML = '';
-    predictions.slice(1, 5).forEach((p) => {
+  // Existing top prediction
+  const top = predictions[0];
+
+  if (top) {
+    topSpecies.textContent = top.species;
+    topConfidence.textContent =
+      `${Math.round(top.confidence * 100)}% confident`;
+    topDescription.textContent = '';
+  } else {
+    topSpecies.textContent = 'No species detected';
+    topConfidence.textContent = '';
+    topDescription.textContent = '';
+  }
+
+  // Existing alternative predictions
+  otherPreds.innerHTML = '';
+
+  predictions.slice(1, 5).forEach((p) => {
+
+    const row = document.createElement('div');
+    row.className = 'pred-row';
+
+    const rowTop = document.createElement('div');
+    rowTop.className = 'row-top';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = p.species;
+
+    const confSpan = document.createElement('span');
+    confSpan.className = 'conf';
+    confSpan.textContent =
+      `${Math.round(p.confidence * 100)}%`;
+
+    rowTop.appendChild(nameSpan);
+    rowTop.appendChild(confSpan);
+
+    const track = document.createElement('div');
+    track.className = 'bar-track';
+
+    const fill = document.createElement('div');
+    fill.className = 'bar-fill';
+    fill.style.width =
+      `${Math.round(p.confidence * 100)}%`;
+
+    track.appendChild(fill);
+
+    row.appendChild(rowTop);
+    row.appendChild(track);
+
+    otherPreds.appendChild(row);
+  });
+
+
+  // NEW: Multiple species detected
+  detectedSpecies.innerHTML = '';
+
+  if (speciesDetected && speciesDetected.length > 0) {
+
+    detectedSection.style.display = 'block';
+
+    speciesDetected.forEach((item) => {
+
       const row = document.createElement('div');
       row.className = 'pred-row';
 
       const rowTop = document.createElement('div');
       rowTop.className = 'row-top';
+
       const nameSpan = document.createElement('span');
-      nameSpan.textContent = p.species;
+      nameSpan.textContent = item.species;
+
       const confSpan = document.createElement('span');
       confSpan.className = 'conf';
-      confSpan.textContent = `${Math.round(p.confidence * 100)}%`;
+      confSpan.textContent =
+        `${Math.round(item.confidence * 100)}%`;
+
       rowTop.appendChild(nameSpan);
       rowTop.appendChild(confSpan);
 
       const track = document.createElement('div');
       track.className = 'bar-track';
+
       const fill = document.createElement('div');
       fill.className = 'bar-fill';
-      fill.style.width = `${Math.round(p.confidence * 100)}%`;
+      fill.style.width =
+        `${Math.round(item.confidence * 100)}%`;
+
       track.appendChild(fill);
 
       row.appendChild(rowTop);
       row.appendChild(track);
-      otherPreds.appendChild(row);
+
+      detectedSpecies.appendChild(row);
     });
 
-    uploadState.style.display = 'none';
-    resultsEl.style.display = 'block';
-    retryBtn.style.display = 'block';
+  } else {
 
+    detectedSection.style.display = 'none';
+  }
+
+
+  uploadState.style.display = 'none';
+  resultsEl.style.display = 'block';
+  retryBtn.style.display = 'block';
+
+
+  // Wikipedia description for top prediction
+  if (top) {
     fetchWikiSummary(top.species).then((extract) => {
-      if (extract) topDescription.textContent = extract;
+      if (extract) {
+        topDescription.textContent = extract;
+      }
     });
   }
+}
 
   identifyBtn.addEventListener('click', async () => {
     if (!selectedFile) return;
@@ -521,7 +606,10 @@
         return;
       }
 
-      renderResults(data.predictions);
+      renderResults(
+        data.predictions,
+        data.species_detected
+      );
     } catch (err) {
       showError('Could not process audio');
     }

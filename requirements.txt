@@ -12,7 +12,7 @@
 fastapi>=0.110.0
 uvicorn>=0.28.0
 python-multipart>=0.0.9
-onnxruntime>=1.18.0
+
 
 # --- Audio Processing & BirdNET Feature Extractor ---
 birdnetlib>=0.18.0
@@ -30,6 +30,3 @@ pandas>=2.2.0
 tqdm>=4.66.0
 requests>=2.31.0
 
-# --- Model Serialization & Export ---
-onnx>=1.16.0
-onnxscript>=0.1.0
