@@ -5,6 +5,14 @@ from typing import Optional
 
 import numpy as np
 import onnxruntime as ort
+import tensorflow as tf
+
+orig_init = tf.lite.Interpreter.__init__
+def patched_init(self, *args, **kwargs):
+    kwargs['experimental_preserve_all_tensors'] = True
+    orig_init(self, *args, **kwargs)
+tf.lite.Interpreter.__init__ = patched_init
+
 from birdnetlib import Recording
 from birdnetlib.analyzer import Analyzer
 from fastapi import FastAPI, UploadFile, File
@@ -104,7 +112,9 @@ async def predict(file: UploadFile = File(...)):
             if total_segments == 0:
                 return JSONResponse(status_code=422, content={"error": "Could not process audio"})
 
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return JSONResponse(status_code=422, content={"error": "Could not process audio"})
 
     # Filter to species detected in enough segments, sort by detection count then avg confidence
