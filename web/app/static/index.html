@@ -1,621 +1,1443 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>BirdEar — Indian Bird Sound Identifier</title>
-<style>
-  :root {
-    --bg: #0f1117;
-    --card: #1e2130;
-    --accent: #4f9cf9;
-    --text: #ffffff;
-    --text-dim: #9aa1b1;
-  }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BirdEar — Indian Bird Sound Identifier</title>
 
-  * { box-sizing: border-box; }
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1e2130;
+      --accent: #4f9cf9;
+      --text: #ffffff;
+      --text-dim: #9aa1b1;
+    }
 
-  body {
-    margin: 0;
-    min-height: 100vh;
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    display: flex;
-    justify-content: center;
-    padding: 48px 16px 80px;
-  }
+    * { box-sizing: border-box; }
 
-  .container {
-    width: 100%;
-    max-width: 560px;
-  }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 48px 16px 80px;
+    }
 
-  header {
-    text-align: center;
-    margin-bottom: 40px;
-  }
+    .container {
+      width: 100%;
+      max-width: 560px;
+    }
 
-  header h1 {
-    font-size: 40px;
-    font-weight: 800;
-    margin: 0;
-    letter-spacing: -0.5px;
-  }
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
 
-  header p {
-    color: var(--text-dim);
-    margin: 8px 0 0;
-    font-size: 15px;
-  }
+    header h1 {
+      font-size: 40px;
+      font-weight: 800;
+      margin: 0;
+      letter-spacing: -0.5px;
+    }
 
-  .card {
-    background: var(--card);
-    border-radius: 16px;
-    padding: 24px;
-  }
+    header p {
+      color: var(--text-dim);
+      margin: 8px 0 0;
+      font-size: 15px;
+    }
 
-  #upload-zone {
-    border: 2px dashed #3a3f52;
-    border-radius: 16px;
-    background: var(--card);
-    padding: 48px 24px;
-    text-align: center;
-    cursor: pointer;
-    transition: border-color 0.15s ease;
-  }
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 24px;
+    }
 
-  #upload-zone:hover,
-  #upload-zone.drag-over {
-    border-color: var(--accent);
-  }
+    #upload-zone {
+      border: 2px dashed #3a3f52;
+      border-radius: 16px;
+      background: var(--card);
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
 
-  #upload-zone svg {
-    width: 40px;
-    height: 40px;
-    stroke: var(--text-dim);
-    margin-bottom: 12px;
-  }
+    #upload-zone:hover,
+    #upload-zone.drag-over {
+      border-color: var(--accent);
+    }
 
-  #upload-zone p {
-    margin: 0;
-    color: var(--text-dim);
-    font-size: 15px;
-  }
+    #upload-zone svg {
+      width: 40px;
+      height: 40px;
+      stroke: var(--text-dim);
+      margin-bottom: 12px;
+    }
 
-  #file-input {
-    display: none;
-  }
+    #upload-zone p {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 15px;
+    }
 
-  #record-btn {
-    width: 100%;
-    margin-top: 16px;
-    padding: 14px;
-    border-radius: 12px;
-    border: 1px solid #3a3f52;
-    background: transparent;
-    color: var(--text);
-    font-size: 15px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    transition: border-color 0.15s ease;
-  }
+    #file-input {
+      display: none;
+    }
 
-  #record-btn:hover {
-    border-color: var(--accent);
-  }
+    #record-btn {
+      width: 100%;
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid #3a3f52;
+      background: transparent;
+      color: var(--text);
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: border-color 0.15s ease;
+    }
 
-  .rec-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #f95555;
-    display: none;
-    animation: pulse 1s infinite;
-  }
+    #record-btn:hover {
+      border-color: var(--accent);
+    }
 
-  #record-btn.recording .rec-dot {
-    display: inline-block;
-  }
+    .rec-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #f95555;
+      display: none;
+      animation: pulse 1s infinite;
+    }
 
-  @keyframes pulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.75); }
-    100% { opacity: 1; transform: scale(1); }
-  }
+    #record-btn.recording .rec-dot {
+      display: inline-block;
+    }
 
-  #file-info {
-    margin-top: 20px;
-    text-align: center;
-    display: none;
-  }
+    @keyframes pulse {
+      0%   { opacity: 1; transform: scale(1); }
+      50%  { opacity: 0.4; transform: scale(0.75); }
+      100% { opacity: 1; transform: scale(1); }
+    }
 
-  #file-info .name {
-    font-size: 15px;
-  }
+    #file-info {
+      margin-top: 20px;
+      text-align: center;
+      display: none;
+    }
 
-  #file-info .duration {
-    color: var(--text-dim);
-    font-size: 13px;
-    margin-top: 4px;
-  }
+    #file-info .name {
+      font-size: 15px;
+    }
 
-  #identify-btn {
-    width: 100%;
-    margin-top: 16px;
-    padding: 14px;
-    border-radius: 12px;
-    border: none;
-    background: var(--accent);
-    color: #fff;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    display: none;
-  }
+    #file-info .duration {
+      color: var(--text-dim);
+      font-size: 13px;
+      margin-top: 4px;
+    }
 
-  #identify-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
+    #identify-btn {
+      width: 100%;
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+    }
 
-  #spinner-wrap {
-    display: none;
-    justify-content: center;
-    padding: 40px 0;
-  }
+    #identify-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
 
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #3a3f52;
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
+    #spinner-wrap {
+      display: none;
+      justify-content: center;
+      padding: 40px 0;
+    }
 
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #3a3f52;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
 
-  #error-box {
-    display: none;
-    margin-top: 16px;
-    padding: 14px;
-    border-radius: 12px;
-    background: rgba(249, 85, 85, 0.12);
-    color: #f97070;
-    font-size: 14px;
-    text-align: center;
-  }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
 
-  #results {
-    display: none;
-    margin-top: 24px;
-  }
+    #error-box {
+      display: none;
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(249, 85, 85, 0.12);
+      color: #f97070;
+      font-size: 14px;
+      text-align: center;
+    }
 
-  .top-pred {
-    text-align: center;
-    padding: 8px 8px 24px;
-    border-bottom: 1px solid #3a3f52;
-  }
+    #results {
+      display: none;
+      margin-top: 24px;
+    }
 
-  .top-pred .species {
-    font-size: 28px;
-    font-weight: 700;
-  }
+    .top-pred {
+      text-align: center;
+      padding: 8px 8px 24px;
+      border-bottom: 1px solid #3a3f52;
+    }
 
-  .top-pred .confidence {
-    color: var(--accent);
-    font-size: 15px;
-    margin-top: 6px;
-  }
+    .top-pred .species {
+      font-size: 28px;
+      font-weight: 700;
+    }
 
-  .top-pred .description {
-    color: var(--text-dim);
-    font-size: 13px;
-    margin-top: 12px;
-    line-height: 1.5;
-  }
+    .top-pred .confidence {
+      color: var(--accent);
+      font-size: 15px;
+      margin-top: 6px;
+    }
 
-  .other-preds {
-    padding-top: 20px;
-  }
+    .top-pred .description {
+      color: var(--text-dim);
+      font-size: 13px;
+      margin-top: 12px;
+      line-height: 1.5;
+    }
 
-  .pred-row {
-    margin-bottom: 14px;
-  }
+    .other-preds {
+      padding-top: 20px;
+    }
 
-  .pred-row .row-top {
-    display: flex;
-    justify-content: space-between;
-    font-size: 14px;
-    margin-bottom: 6px;
-  }
+    .pred-row {
+      margin-bottom: 14px;
+    }
 
-  .pred-row .row-top .conf {
-    color: var(--text-dim);
-  }
+    .pred-row .row-top {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
 
-  .bar-track {
-    width: 100%;
-    height: 4px;
-    background: #3a3f52;
-    border-radius: 2px;
-    overflow: hidden;
-  }
+    .pred-row .row-top .conf {
+      color: var(--text-dim);
+    }
 
-  .bar-fill {
-    height: 100%;
-    background: var(--accent);
-    border-radius: 2px;
-  }
+    .bar-track {
+      width: 100%;
+      height: 4px;
+      background: #3a3f52;
+      border-radius: 2px;
+      overflow: hidden;
+    }
 
-  #retry-btn {
-    width: 100%;
-    margin-top: 24px;
-    padding: 14px;
-    border-radius: 12px;
-    border: 1px solid #3a3f52;
-    background: transparent;
-    color: var(--text);
-    font-size: 15px;
-    cursor: pointer;
-  }
+    .bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+    }
 
-  #retry-btn:hover {
-    border-color: var(--accent);
-  }
-</style>
+    .section-title      { font-size: 18px; font-weight: 700; margin-bottom: 14px; }
+    .section-subtitle   { color: var(--text-dim); font-size: 12px; line-height: 1.5; margin-top: -6px; margin-bottom: 16px; }
+    .detected-card      { padding: 16px 0; border-top: 1px solid #3a3f52; }
+    .detected-card:first-child { border-top: none; padding-top: 0; }
+    .detected-header    { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+    .detected-name      { font-size: 16px; font-weight: 650; }
+    .detected-confidence { color: var(--accent); font-size: 13px; white-space: nowrap; }
+    .count-line         { display: flex; align-items: baseline; gap: 7px; margin: 8px 0 12px; }
+    .count-number       { font-size: 22px; font-weight: 750; }
+    .count-label        { color: var(--text-dim); font-size: 13px; }
+    .event-list         { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+    .event-row          { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 8px; background: rgba(255,255,255,0.035); font-size: 12px; }
+    .event-time         { color: var(--text-dim); }
+    .event-confidence   { color: var(--text-dim); }
+    .count-note         { color: var(--text-dim); font-size: 11px; line-height: 1.5; margin-top: 12px; }
+
+    #retry-btn {
+      width: 100%;
+      margin-top: 24px;
+      padding: 14px;
+      border-radius: 12px;
+      border: 1px solid #3a3f52;
+      background: transparent;
+      color: var(--text);
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    #retry-btn:hover {
+      border-color: var(--accent);
+    }
+
+    #waveform-container {
+        margin-bottom: 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #3a3f52;
+    }
+
+    .waveform-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    #wave-play-btn {
+        border: 1px solid #3a3f52;
+        background: transparent;
+        color: var(--text);
+        padding: 8px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+    }
+
+    #wave-play-btn:hover {
+        border-color: var(--accent);
+    }
+
+    #wave-time {
+        color: var(--text-dim);
+        font-size: 12px;
+    }
+
+    #waveform-wrapper {
+        position: relative;
+        width: 100%;
+        height: 120px;
+        background: #151823;
+        border-radius: 10px;
+        overflow: hidden;
+        cursor: pointer;
+    }
+
+    #waveform-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+    }
+
+    #waveform-position {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 2px;
+        background: #ffffff;
+        pointer-events: none;
+    }
+
+    .waveform-help {
+        color: var(--text-dim);
+        font-size: 11px;
+        line-height: 1.5;
+        margin-top: 8px;
+    }
+
+    .event-jump {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 9px 10px;
+        border: none;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.035);
+        color: var(--text);
+        font-size: 12px;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .event-jump:hover {
+        background: rgba(79,156,249,0.12);
+    }
+
+    .event-time {
+        color: var(--text-dim);
+    }
+
+    .event-confidence {
+        color: var(--text-dim);
+        white-space: nowrap;
+    }
+
+  </style>
 </head>
+
 <body>
-<div class="container">
-  <header>
-    <h1>BirdEar</h1>
-    <p>Indian Bird Sound Identifier — 29 species</p>
-  </header>
+  <div class="container">
 
-  <div id="upload-state">
-    <div id="upload-zone">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
-        <path d="M19 11a7 7 0 0 1-14 0"/>
-        <line x1="12" y1="18" x2="12" y2="22"/>
-        <line x1="8" y1="22" x2="16" y2="22"/>
-      </svg>
-      <p>Drop an audio file or click to upload<br><span style="font-size:12px;">.wav or .mp3 only</span></p>
-    </div>
-    <input type="file" id="file-input" accept=".wav,.mp3,audio/wav,audio/mpeg" />
+    <header>
+      <h1>BirdEar</h1>
+      <p>Indian Bird Sound Identifier — 83 species</p>
+    </header>
 
-    <button id="record-btn">
-      <span class="rec-dot"></span>
-      <span id="record-label">Record</span>
-    </button>
-
-    <div id="file-info">
-      <div class="name" id="file-name"></div>
-      <div class="duration" id="file-duration"></div>
-    </div>
-
-    <button id="identify-btn">Identify Bird</button>
-
-    <div id="spinner-wrap"><div class="spinner"></div></div>
-
-    <div id="error-box"></div>
-  </div>
-
-  <div id="results" class="card">
-    <div class="top-pred">
-      <div class="species" id="top-species"></div>
-      <div class="confidence" id="top-confidence"></div>
-      <div class="description" id="top-description"></div>
-    </div>
-    <div class="other-preds" id="other-preds"></div>
-    <div id="detected-section" style="display:none; margin-top:24px; padding-top:20px; border-top:1px solid #3a3f52;">
-      <div style="font-size:18px; font-weight:700; margin-bottom:14px;">
-        Species Detected
+    <div id="upload-state">
+      <div id="upload-zone">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
+          <path d="M19 11a7 7 0 0 1-14 0"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="8"  y1="22" x2="16" y2="22"/>
+        </svg>
+        <p>Drop an audio file or click to upload<br><span style="font-size:12px;">.wav or .mp3 only</span></p>
       </div>
-      <div id="detected-species"></div>
+
+      <input type="file" id="file-input" accept=".wav,.mp3,audio/wav,audio/mpeg" />
+
+      <button id="record-btn">
+        <span class="rec-dot"></span>
+        <span id="record-label">Record</span>
+      </button>
+
+      <div id="file-info">
+        <div class="name" id="file-name"></div>
+        <div class="duration" id="file-duration"></div>
+      </div>
+
+      <button id="identify-btn">Identify Bird</button>
+
+      <div id="spinner-wrap"><div class="spinner"></div></div>
+
+      <div id="error-box"></div>
     </div>
+
+    <div id="results" class="card">
+      <div class="top-pred">
+        <div class="species" id="top-species"></div>
+        <div class="confidence" id="top-confidence"></div>
+        <div class="description" id="top-description"></div>
+      </div>
+      <div class="other-preds" id="other-preds"></div>
+      <div id="detected-section" style="display:none; margin-top:24px; padding-top:20px; border-top:1px solid #3a3f52;">
+        <div class="section-title">Detected bird calls over time</div>
+        <div class="section-subtitle">The temporal model found possible calls at these points in the recording. Click an event to listen to that section.</div>
+        <div id="detected-species"></div>
+      </div>
+    </div>
+
+    <button id="retry-btn" style="display:none;">Try another</button>
 
   </div>
 
-  <button id="retry-btn" style="display:none;">Try another</button>
-</div>
+  <script>
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+const recordBtn = document.getElementById('record-btn');
+const recordLabel = document.getElementById('record-label');
+const fileInfo = document.getElementById('file-info');
+const fileNameEl = document.getElementById('file-name');
+const fileDurationEl = document.getElementById('file-duration');
+const identifyBtn = document.getElementById('identify-btn');
+const spinnerWrap = document.getElementById('spinner-wrap');
+const errorBox = document.getElementById('error-box');
+const uploadState = document.getElementById('upload-state');
+const resultsEl = document.getElementById('results');
+const retryBtn = document.getElementById('retry-btn');
+const topSpecies = document.getElementById('top-species');
+const topConfidence = document.getElementById('top-confidence');
+const topDescription = document.getElementById('top-description');
+const otherPreds = document.getElementById('other-preds');
+const detectedSection = document.getElementById('detected-section');
+const detectedSpecies = document.getElementById('detected-species');
 
-<script>
-  const uploadZone = document.getElementById('upload-zone');
-  const fileInput = document.getElementById('file-input');
-  const recordBtn = document.getElementById('record-btn');
-  const recordLabel = document.getElementById('record-label');
-  const fileInfo = document.getElementById('file-info');
-  const fileNameEl = document.getElementById('file-name');
-  const fileDurationEl = document.getElementById('file-duration');
-  const identifyBtn = document.getElementById('identify-btn');
-  const spinnerWrap = document.getElementById('spinner-wrap');
-  const errorBox = document.getElementById('error-box');
-  const uploadState = document.getElementById('upload-state');
-  const resultsEl = document.getElementById('results');
-  const retryBtn = document.getElementById('retry-btn');
-  const topSpecies = document.getElementById('top-species');
-  const topConfidence = document.getElementById('top-confidence');
-  const topDescription = document.getElementById('top-description');
-  const otherPreds = document.getElementById('other-preds');
-  const detectedSection = document.getElementById('detected-section');
-  const detectedSpecies = document.getElementById('detected-species');
+let selectedFile = null;
+let isRecording = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingSampleRate = 44100;
 
-  let selectedFile = null;
-  let mediaRecorder = null;
-  let recordedChunks = [];
-  let isRecording = false;
+let audio = null;
+let audioUrl = null;
+let audioBuffer = null;
+let waveformCanvas = null;
+let waveformCtx = null;
+let allDetectedEvents = [];
+let activeEventIndex = -1;
 
-  function resetToUpload() {
+
+/* =========================================================
+   RESET / ERROR HANDLING
+   ========================================================= */
+
+function resetToUpload() {
+    if (audio) {
+        audio.pause();
+        audio.currentTime = 0;
+    }
+
+    if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+        audioUrl = null;
+    }
+
+    audio = null;
+    audioBuffer = null;
+    allDetectedEvents = [];
+    activeEventIndex = -1;
+
     selectedFile = null;
     fileInput.value = '';
+
     fileInfo.style.display = 'none';
     identifyBtn.style.display = 'none';
     identifyBtn.disabled = false;
     identifyBtn.textContent = 'Identify Bird';
+
     spinnerWrap.style.display = 'none';
     errorBox.style.display = 'none';
     resultsEl.style.display = 'none';
     retryBtn.style.display = 'none';
+
     uploadState.style.display = 'block';
-  }
-
-  function showError(msg) {
-    errorBox.textContent = msg;
-    errorBox.style.display = 'block';
-    spinnerWrap.style.display = 'none';
-    identifyBtn.disabled = false;
-    identifyBtn.textContent = 'Identify Bird';
-  }
-
-  function getAudioDuration(blob) {
-    return new Promise((resolve) => {
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio();
-      audio.preload = 'metadata';
-      audio.onloadedmetadata = () => {
-        resolve(isFinite(audio.duration) ? audio.duration : 0);
-        URL.revokeObjectURL(url);
-      };
-      audio.onerror = () => resolve(0);
-      audio.src = url;
-    });
-  }
-
-  async function setSelectedFile(file) {
-    selectedFile = file;
-    const duration = await getAudioDuration(file);
-    fileNameEl.textContent = file.name;
-    fileDurationEl.textContent = duration ? `${duration.toFixed(1)}s` : '';
-    fileInfo.style.display = 'block';
-    identifyBtn.style.display = 'block';
-    errorBox.style.display = 'none';
-  }
-
-  uploadZone.addEventListener('click', () => fileInput.click());
-
-  uploadZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadZone.classList.add('drag-over');
-  });
-
-  uploadZone.addEventListener('dragleave', () => {
-    uploadZone.classList.remove('drag-over');
-  });
-
-  uploadZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadZone.classList.remove('drag-over');
-    const file = e.dataTransfer.files[0];
-    if (file) setSelectedFile(file);
-  });
-
-  fileInput.addEventListener('change', () => {
-    const file = fileInput.files[0];
-    if (file) setSelectedFile(file);
-  });
-
-  recordBtn.addEventListener('click', async () => {
-    if (!isRecording) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        recordedChunks = [];
-        let options = {};
-        if (MediaRecorder.isTypeSupported('audio/wav')) {
-          options = { mimeType: 'audio/wav' };
-        }
-        mediaRecorder = new MediaRecorder(stream, options);
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) recordedChunks.push(e.data);
-        };
-        mediaRecorder.onstop = async () => {
-          stream.getTracks().forEach((t) => t.stop());
-          const blob = new Blob(recordedChunks, { type: 'audio/wav' });
-          const file = new File([blob], 'recording.wav', { type: 'audio/wav' });
-          await setSelectedFile(file);
-          identifyBtn.click();
-        };
-        mediaRecorder.start();
-        isRecording = true;
-        recordBtn.classList.add('recording');
-        recordLabel.textContent = 'Recording…';
-      } catch (err) {
-        showError('Could not process audio');
-      }
-    } else {
-      mediaRecorder.stop();
-      isRecording = false;
-      recordBtn.classList.remove('recording');
-      recordLabel.textContent = 'Record';
-    }
-  });
-
-  async function fetchWikiSummary(species) {
-    try {
-      const title = species.replace(/ /g, '_');
-      const res = await fetch(`https://en.wikipedia.org/api/rest_v1/summary/${encodeURIComponent(title)}`);
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (!data.extract) return null;
-      return data.extract.length > 200 ? data.extract.slice(0, 200) + '…' : data.extract;
-    } catch (err) {
-      return null;
-    }
-  }
-
-  function renderResults(predictions, speciesDetected) {
-
-  // Existing top prediction
-  const top = predictions[0];
-
-  if (top) {
-    topSpecies.textContent = top.species;
-    topConfidence.textContent =
-      `${Math.round(top.confidence * 100)}% confident`;
-    topDescription.textContent = '';
-  } else {
-    topSpecies.textContent = 'No species detected';
-    topConfidence.textContent = '';
-    topDescription.textContent = '';
-  }
-
-  // Existing alternative predictions
-  otherPreds.innerHTML = '';
-
-  predictions.slice(1, 5).forEach((p) => {
-
-    const row = document.createElement('div');
-    row.className = 'pred-row';
-
-    const rowTop = document.createElement('div');
-    rowTop.className = 'row-top';
-
-    const nameSpan = document.createElement('span');
-    nameSpan.textContent = p.species;
-
-    const confSpan = document.createElement('span');
-    confSpan.className = 'conf';
-    confSpan.textContent =
-      `${Math.round(p.confidence * 100)}%`;
-
-    rowTop.appendChild(nameSpan);
-    rowTop.appendChild(confSpan);
-
-    const track = document.createElement('div');
-    track.className = 'bar-track';
-
-    const fill = document.createElement('div');
-    fill.className = 'bar-fill';
-    fill.style.width =
-      `${Math.round(p.confidence * 100)}%`;
-
-    track.appendChild(fill);
-
-    row.appendChild(rowTop);
-    row.appendChild(track);
-
-    otherPreds.appendChild(row);
-  });
-
-
-  // NEW: Multiple species detected
-  detectedSpecies.innerHTML = '';
-
-  if (speciesDetected && speciesDetected.length > 0) {
-
-    detectedSection.style.display = 'block';
-
-    speciesDetected.forEach((item) => {
-
-      const row = document.createElement('div');
-      row.className = 'pred-row';
-
-      const rowTop = document.createElement('div');
-      rowTop.className = 'row-top';
-
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = item.species;
-
-      const confSpan = document.createElement('span');
-      confSpan.className = 'conf';
-      confSpan.textContent =
-        `${Math.round(item.confidence * 100)}%`;
-
-      rowTop.appendChild(nameSpan);
-      rowTop.appendChild(confSpan);
-
-      const track = document.createElement('div');
-      track.className = 'bar-track';
-
-      const fill = document.createElement('div');
-      fill.className = 'bar-fill';
-      fill.style.width =
-        `${Math.round(item.confidence * 100)}%`;
-
-      track.appendChild(fill);
-
-      row.appendChild(rowTop);
-      row.appendChild(track);
-
-      detectedSpecies.appendChild(row);
-    });
-
-  } else {
-
-    detectedSection.style.display = 'none';
-  }
-
-
-  uploadState.style.display = 'none';
-  resultsEl.style.display = 'block';
-  retryBtn.style.display = 'block';
-
-
-  // Wikipedia description for top prediction
-  if (top) {
-    fetchWikiSummary(top.species).then((extract) => {
-      if (extract) {
-        topDescription.textContent = extract;
-      }
-    });
-  }
 }
 
-  identifyBtn.addEventListener('click', async () => {
-    if (!selectedFile) return;
+
+function showError(msg) {
+    errorBox.textContent = msg;
+    errorBox.style.display = 'block';
+
+    spinnerWrap.style.display = 'none';
+
+    identifyBtn.disabled = false;
+    identifyBtn.textContent = 'Identify Bird';
+}
+
+
+/* =========================================================
+   AUDIO
+   ========================================================= */
+
+function getAudioDuration(blob) {
+    return new Promise((resolve) => {
+        const url = URL.createObjectURL(blob);
+        const tempAudio = new Audio();
+
+        tempAudio.preload = 'metadata';
+
+        tempAudio.onloadedmetadata = () => {
+            const duration = Number.isFinite(tempAudio.duration)
+                ? tempAudio.duration
+                : 0;
+
+            URL.revokeObjectURL(url);
+            resolve(duration);
+        };
+
+        tempAudio.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(0);
+        };
+
+        tempAudio.src = url;
+    });
+}
+
+
+async function loadAudioForPlayback(file) {
+    if (audio) {
+        audio.pause();
+    }
+
+    if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+    }
+
+    audioUrl = URL.createObjectURL(file);
+
+    audio = new Audio();
+    audio.preload = 'auto';
+    audio.src = audioUrl;
+
+    await new Promise((resolve, reject) => {
+        audio.addEventListener('loadedmetadata', resolve, { once: true });
+        audio.addEventListener('error', reject, { once: true });
+    });
+
+    audio.addEventListener('timeupdate', updatePlaybackPosition);
+
+    await decodeWaveform(file);
+}
+
+
+async function setSelectedFile(file) {
+    if (!file) {
+        return;
+    }
+
+    selectedFile = file;
+
+    const duration = await getAudioDuration(file);
+
+    fileNameEl.textContent = file.name;
+    fileDurationEl.textContent = `${duration.toFixed(1)}s`;
+
+    fileInfo.style.display = 'block';
+    identifyBtn.style.display = 'block';
+
+    errorBox.style.display = 'none';
+
+    try {
+        await loadAudioForPlayback(file);
+    } catch (err) {
+        console.error('Audio preview error:', err);
+        // Don't block the identify flow if waveform preview fails.
+    }
+}
+
+
+/* =========================================================
+   UPLOAD
+   ========================================================= */
+
+uploadZone.addEventListener('click', () => {
+    fileInput.click();
+});
+
+
+uploadZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadZone.classList.add('drag-over');
+});
+
+
+uploadZone.addEventListener('dragleave', () => {
+    uploadZone.classList.remove('drag-over');
+});
+
+
+uploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+
+    const file = e.dataTransfer.files[0];
+
+    if (file) {
+        setSelectedFile(file);
+    }
+});
+
+
+fileInput.addEventListener('change', () => {
+    const file = fileInput.files[0];
+
+    if (file) {
+        setSelectedFile(file);
+    }
+});
+
+
+/* =========================================================
+   MICROPHONE RECORDING
+   ========================================================= */
+
+function encodeWav(samples, sampleRate) {
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    for (let i = 0; i < samples.length; i++) {
+        const s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+}
+
+
+recordBtn.addEventListener('click', async () => {
+    if (!isRecording) {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            recordingSampleRate = audioCtx.sampleRate;
+            const source = audioCtx.createMediaStreamSource(stream);
+            const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+            recordedChunks = [];
+
+            processor.onaudioprocess = (e) => {
+                if (isRecording) recordedChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+            };
+
+            source.connect(processor);
+            processor.connect(audioCtx.destination);
+
+            isRecording = true;
+            recordBtn.classList.add('recording');
+            recordLabel.textContent = 'Stop Recording';
+
+            mediaRecorder = { stream, audioCtx, source, processor };
+
+        } catch (err) {
+            console.error('Microphone error:', err);
+            showError('Could not access microphone');
+        }
+
+    } else {
+        isRecording = false;
+        recordBtn.classList.remove('recording');
+        recordLabel.textContent = 'Record';
+
+        const { stream, audioCtx, source, processor } = mediaRecorder;
+        processor.disconnect();
+        source.disconnect();
+        stream.getTracks().forEach(t => t.stop());
+        await audioCtx.close();
+
+        const totalLen = recordedChunks.reduce((n, c) => n + c.length, 0);
+        const samples = new Float32Array(totalLen);
+        let offset = 0;
+        for (const chunk of recordedChunks) { samples.set(chunk, offset); offset += chunk.length; }
+
+        const wavBlob = encodeWav(samples, recordingSampleRate);
+        const file = new File([wavBlob], 'recording.wav', { type: 'audio/wav' });
+        await setSelectedFile(file);
+    }
+});
+
+/* =========================================================
+   WIKIPEDIA
+   ========================================================= */
+
+async function fetchWikiSummary(species) {
+    try {
+        const title = species.replace(/ /g, '_');
+
+        const res = await fetch(
+            `https://en.wikipedia.org/api/rest_v1/summary/${encodeURIComponent(title)}`
+        );
+
+        if (!res.ok) {
+            return null;
+        }
+
+        const data = await res.json();
+
+        if (!data.extract) {
+            return null;
+        }
+
+        return data.extract.length > 200
+            ? data.extract.slice(0, 200) + '…'
+            : data.extract;
+
+    } catch (err) {
+        console.warn('Wikipedia lookup failed:', err);
+        return null;
+    }
+}
+
+
+/* =========================================================
+   TIME FORMATTING
+   ========================================================= */
+
+function formatTime(seconds) {
+    const total = Math.max(0, Number(seconds) || 0);
+
+    const minutes = Math.floor(total / 60);
+    const secs = total - minutes * 60;
+
+    return minutes > 0
+        ? `${minutes}:${secs.toFixed(1).padStart(4, '0')}`
+        : `${secs.toFixed(1)}s`;
+}
+
+
+/* =========================================================
+   WAVEFORM
+   ========================================================= */
+
+async function decodeWaveform(file) {
+    const arrayBuffer = await file.arrayBuffer();
+
+    const AudioContextClass =
+        window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContextClass) {
+        return;
+    }
+
+    const context = new AudioContextClass();
+
+    try {
+        audioBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
+    } finally {
+        await context.close();
+    }
+
+    createWaveformUI();
+}
+
+
+function createWaveformUI() {
+    let waveformContainer = document.getElementById('waveform-container');
+
+    if (!waveformContainer) {
+        waveformContainer = document.createElement('div');
+        waveformContainer.id = 'waveform-container';
+
+        waveformContainer.innerHTML = `
+            <div class="waveform-header">
+                <button id="wave-play-btn" type="button">▶ Play</button>
+                <span id="wave-time">0:00.0 / 0:00.0</span>
+            </div>
+
+            <div id="waveform-wrapper">
+                <canvas id="waveform-canvas"></canvas>
+                <div id="waveform-position"></div>
+            </div>
+
+            <div class="waveform-help">
+                Click the waveform to jump to that point.
+                Highlighted regions are temporal detections.
+            </div>
+        `;
+
+        resultsEl.insertBefore(
+            waveformContainer,
+            resultsEl.firstChild
+        );
+
+        waveformCanvas = document.getElementById('waveform-canvas');
+        waveformCtx = waveformCanvas.getContext('2d');
+
+        document
+            .getElementById('wave-play-btn')
+            .addEventListener('click', togglePlayback);
+
+        waveformCanvas.addEventListener(
+            'click',
+            handleWaveformClick
+        );
+
+        window.addEventListener(
+            'resize',
+            resizeWaveform
+        );
+    }
+
+    resizeWaveform();
+    drawWaveform();
+}
+
+
+function resizeWaveform() {
+    if (!waveformCanvas) {
+        return;
+    }
+
+    const rect = waveformCanvas.getBoundingClientRect();
+
+    const dpr = window.devicePixelRatio || 1;
+
+    waveformCanvas.width = rect.width * dpr;
+    waveformCanvas.height = rect.height * dpr;
+
+    waveformCtx.setTransform(
+        dpr,
+        0,
+        0,
+        dpr,
+        0,
+        0
+    );
+
+    drawWaveform();
+}
+
+
+function drawWaveform() {
+    if (!waveformCanvas || !waveformCtx || !audioBuffer) {
+        return;
+    }
+
+    const width = waveformCanvas.clientWidth;
+    const height = waveformCanvas.clientHeight;
+
+    waveformCtx.clearRect(0, 0, width, height);
+
+    const data = audioBuffer.getChannelData(0);
+
+    const samplesPerPixel = Math.max(
+        1,
+        Math.floor(data.length / width)
+    );
+
+    waveformCtx.beginPath();
+
+    for (let x = 0; x < width; x++) {
+        const start = x * samplesPerPixel;
+        const end = Math.min(
+            start + samplesPerPixel,
+            data.length
+        );
+
+        let min = 1;
+        let max = -1;
+
+        for (let i = start; i < end; i++) {
+            const value = data[i];
+
+            if (value < min) min = value;
+            if (value > max) max = value;
+        }
+
+        const y1 = ((1 + min) / 2) * height;
+        const y2 = ((1 + max) / 2) * height;
+
+        waveformCtx.moveTo(x, y1);
+        waveformCtx.lineTo(x, y2);
+    }
+
+    waveformCtx.strokeStyle = '#4f9cf9';
+    waveformCtx.lineWidth = 1;
+
+    waveformCtx.stroke();
+
+    drawEventMarkers();
+    updatePlaybackPosition();
+}
+
+
+function drawEventMarkers() {
+    if (!waveformCanvas || !waveformCtx || !audio) {
+        return;
+    }
+
+    const width = waveformCanvas.clientWidth;
+    const height = waveformCanvas.clientHeight;
+    const duration = audio.duration;
+
+    if (!duration || !Number.isFinite(duration)) {
+        return;
+    }
+
+    allDetectedEvents.forEach((event, index) => {
+        const start = Math.max(
+            0,
+            Number(event.start_time) || 0
+        );
+
+        const end = Math.min(
+            duration,
+            Number(event.end_time) || start
+        );
+
+        const x1 = (start / duration) * width;
+        const x2 = (end / duration) * width;
+
+        waveformCtx.fillStyle =
+            index === activeEventIndex
+                ? 'rgba(255, 180, 60, 0.45)'
+                : 'rgba(255, 180, 60, 0.25)';
+
+        waveformCtx.fillRect(
+            x1,
+            0,
+            Math.max(2, x2 - x1),
+            height
+        );
+    });
+}
+
+
+function updatePlaybackPosition() {
+    if (!audio) {
+        return;
+    }
+
+    const timeElement =
+        document.getElementById('wave-time');
+
+    const positionElement =
+        document.getElementById('waveform-position');
+
+    if (timeElement) {
+        timeElement.textContent =
+            `${formatTime(audio.currentTime)} / ${formatTime(audio.duration)}`;
+    }
+
+    if (positionElement && audio.duration) {
+        positionElement.style.left =
+            `${(audio.currentTime / audio.duration) * 100}%`;
+    }
+}
+
+
+function togglePlayback() {
+    if (!audio) {
+        return;
+    }
+
+    const button =
+        document.getElementById('wave-play-btn');
+
+    if (audio.paused) {
+        audio.play();
+
+        if (button) {
+            button.textContent = '❚❚ Pause';
+        }
+    } else {
+        audio.pause();
+
+        if (button) {
+            button.textContent = '▶ Play';
+        }
+    }
+
+    audio.onended = () => {
+        if (button) {
+            button.textContent = '▶ Play';
+        }
+    };
+}
+
+
+function handleWaveformClick(event) {
+    if (!audio || !waveformCanvas) {
+        return;
+    }
+
+    const rect =
+        waveformCanvas.getBoundingClientRect();
+
+    const x = event.clientX - rect.left;
+
+    const ratio =
+        Math.max(0, Math.min(1, x / rect.width));
+
+    audio.currentTime =
+        ratio * audio.duration;
+
+    audio.play();
+}
+
+
+function seekTo(seconds, play = false) {
+    if (!audio) {
+        return;
+    }
+
+    const target =
+        Math.max(
+            0,
+            Math.min(
+                Number(seconds) || 0,
+                audio.duration || Number(seconds) || 0
+            )
+        );
+
+    audio.currentTime = target;
+
+    if (play) {
+        audio.play();
+    }
+
+    updatePlaybackPosition();
+}
+
+
+/* =========================================================
+   RENDER RESULTS
+   ========================================================= */
+
+function renderResults(predictions, speciesDetected) {
+    const top = predictions && predictions[0];
+
+    if (top) {
+        topSpecies.textContent = top.species;
+
+        topConfidence.textContent =
+            `${Math.round(top.confidence * 100)}% model score`;
+
+        topDescription.textContent =
+            'Most likely species across the complete recording.';
+    } else {
+        topSpecies.textContent = 'No species detected';
+        topConfidence.textContent = '';
+        topDescription.textContent = '';
+    }
+
+
+    /* -----------------------------------------------------
+       OTHER RECORDING-LEVEL PREDICTIONS
+       ----------------------------------------------------- */
+
+    otherPreds.innerHTML = '';
+
+    if (predictions && predictions.length > 1) {
+        const heading = document.createElement('div');
+
+        heading.style.cssText =
+            'font-size:13px;color:#9aa1b1;margin-bottom:14px;';
+
+        heading.textContent =
+            'Other recording-level predictions';
+
+        otherPreds.appendChild(heading);
+    }
+
+    (predictions || []).slice(1, 5).forEach((p) => {
+        const row = document.createElement('div');
+
+        row.className = 'pred-row';
+
+        const rowTop = document.createElement('div');
+
+        rowTop.className = 'row-top';
+
+        const nameSpan =
+            document.createElement('span');
+
+        nameSpan.textContent = p.species;
+
+        const confSpan =
+            document.createElement('span');
+
+        confSpan.className = 'conf';
+
+        confSpan.textContent =
+            `${Math.round(p.confidence * 100)}%`;
+
+        rowTop.appendChild(nameSpan);
+        rowTop.appendChild(confSpan);
+
+        const track =
+            document.createElement('div');
+
+        track.className = 'bar-track';
+
+        const fill =
+            document.createElement('div');
+
+        fill.className = 'bar-fill';
+
+        fill.style.width =
+            `${Math.min(
+                100,
+                Math.max(0, p.confidence * 100)
+            )}%`;
+
+        track.appendChild(fill);
+
+        row.appendChild(rowTop);
+        row.appendChild(track);
+
+        otherPreds.appendChild(row);
+    });
+
+
+    /* -----------------------------------------------------
+       TEMPORAL DETECTIONS
+       ----------------------------------------------------- */
+
+    detectedSpecies.innerHTML = '';
+
+    allDetectedEvents = [];
+    activeEventIndex = -1;
+
+    if (
+        speciesDetected &&
+        speciesDetected.length > 0
+    ) {
+        detectedSection.style.display = 'block';
+
+        speciesDetected.forEach((item) => {
+            const card =
+                document.createElement('div');
+
+            card.className = 'detected-card';
+
+            const header =
+                document.createElement('div');
+
+            header.className = 'detected-header';
+
+            const name =
+                document.createElement('div');
+
+            name.className = 'detected-name';
+            name.textContent = item.species;
+
+            const confidence =
+                document.createElement('div');
+
+            confidence.className =
+                'detected-confidence';
+
+            confidence.textContent =
+                `${Math.round(item.confidence * 100)}% detection score`;
+
+            header.appendChild(name);
+            header.appendChild(confidence);
+
+            card.appendChild(header);
+
+
+            const countLine =
+                document.createElement('div');
+
+            countLine.className = 'count-line';
+
+            const countNumber =
+                document.createElement('span');
+
+            countNumber.className = 'count-number';
+
+            countNumber.textContent =
+                item.estimated_count ?? 0;
+
+            const countLabel =
+                document.createElement('span');
+
+            countLabel.className = 'count-label';
+
+            countLabel.textContent =
+                'approx. acoustic occurrences';
+
+            countLine.appendChild(countNumber);
+            countLine.appendChild(countLabel);
+
+            card.appendChild(countLine);
+
+
+            if (
+                item.events &&
+                item.events.length > 0
+            ) {
+                const eventList =
+                    document.createElement('div');
+
+                eventList.className = 'event-list';
+
+
+                item.events.forEach((event, index) => {
+                    const globalIndex =
+                        allDetectedEvents.length;
+
+                    allDetectedEvents.push({
+                        ...event,
+                        species: item.species
+                    });
+
+
+                    const eventRow =
+                        document.createElement('button');
+
+                    eventRow.type = 'button';
+                    eventRow.className = 'event-jump';
+
+
+                    const eventTime =
+                        document.createElement('span');
+
+                    eventTime.className =
+                        'event-time';
+
+                    eventTime.textContent =
+                        `Event ${index + 1}: ` +
+                        `${formatTime(event.start_time)} - ` +
+                        `${formatTime(event.end_time)}`;
+
+
+                    const eventConfidence =
+                        document.createElement('span');
+
+                    eventConfidence.className =
+                        'event-confidence';
+
+                    eventConfidence.textContent =
+                        `${Math.round(
+                            event.confidence * 100
+                        )}%`;
+
+
+                    eventRow.appendChild(eventTime);
+                    eventRow.appendChild(eventConfidence);
+
+                    eventRow.addEventListener(
+                        'click',
+                        () => {
+                            activeEventIndex =
+                                globalIndex;
+
+                            drawWaveform();
+
+                            seekTo(
+                                Number(event.start_time) || 0,
+                                true
+                            );
+                        }
+                    );
+                    eventList.appendChild(eventRow);
+                });
+
+                card.appendChild(eventList);
+            }
+
+            const note =
+                document.createElement('div');
+            note.className = 'count-note';
+            note.textContent =
+                item.count_note ||
+                'Approximate acoustic occurrence count. ' +
+                'The same bird may produce multiple occurrences.';
+            card.appendChild(note);
+            detectedSpecies.appendChild(card);
+        });
+
+    } else {
+        detectedSection.style.display = 'none';
+    }
+
+    uploadState.style.display = 'none';
+    resultsEl.style.display = 'block';
+    retryBtn.style.display = 'block';
+
+
+    if (top) {
+        fetchWikiSummary(top.species)
+            .then((extract) => {
+                if (extract) {
+                    topDescription.textContent = extract;
+                }
+            });
+    }
+
+
+    if (waveformCanvas) {
+        resizeWaveform();
+        drawWaveform();
+    }
+}
+
+/* =========================================================
+   PREDICTION REQUEST
+   ========================================================= */
+
+identifyBtn.addEventListener('click', async () => {
+    if (!selectedFile) {
+        return;
+    }
+
     errorBox.style.display = 'none';
     identifyBtn.disabled = true;
+    identifyBtn.textContent = 'Processing...';
     spinnerWrap.style.display = 'flex';
 
     const formData = new FormData();
+
     formData.append('file', selectedFile);
 
+
     try {
-      const res = await fetch('/predict', { method: 'POST', body: formData });
-      const data = await res.json();
-      spinnerWrap.style.display = 'none';
+        const res = await fetch(
+            '/predict',
+            {
+                method: 'POST',
+                body: formData
+            }
+        );
 
-      if (!res.ok) {
-        showError(data.error || 'Could not process audio');
-        return;
-      }
 
-      renderResults(
-        data.predictions,
-        data.species_detected
-      );
+        let data;
+
+        try {
+            data = await res.json();
+        } catch (jsonError) {
+            throw new Error(
+                `Server returned HTTP ${res.status} but not valid JSON.`
+            );
+        }
+
+
+        spinnerWrap.style.display = 'none';
+
+
+        if (!res.ok) {
+            showError(
+                data.error ||
+                `Server error (${res.status})`
+            );
+
+            return;
+        }
+
+
+        if (
+            !data ||
+            !Array.isArray(data.predictions)
+        ) {
+            showError(
+                'The server response did not contain valid predictions.'
+            );
+
+            return;
+        }
+
+        renderResults(
+            data.predictions,
+            data.species_detected || []
+        );
+
+
+        identifyBtn.disabled = false;
+        identifyBtn.textContent = 'Identify Bird';
+
+
     } catch (err) {
-      showError('Could not process audio');
-    }
-  });
+        console.error('Prediction request failed:', err);
 
-  retryBtn.addEventListener('click', resetToUpload);
+        showError(
+            `Could not process audio: ${err.message}`
+        );
+    }
+});
+
+/* =========================================================
+   RETRY
+   ========================================================= */
+
+retryBtn.addEventListener(
+    'click',
+    resetToUpload
+);
 </script>
+
 </body>
 </html>

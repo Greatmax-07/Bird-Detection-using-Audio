@@ -13,14 +13,11 @@ import tensorflow as tf
 
 orig_init = tf.lite.Interpreter.__init__
 
-
 def patched_init(self, *args, **kwargs):
     kwargs["experimental_preserve_all_tensors"] = True
     orig_init(self, *args, **kwargs)
 
-
 tf.lite.Interpreter.__init__ = patched_init
-
 
 # ============================================================
 # BirdNET
@@ -28,7 +25,6 @@ tf.lite.Interpreter.__init__ = patched_init
 
 from birdnetlib import Recording
 from birdnetlib.analyzer import Analyzer
-
 
 # ============================================================
 # FastAPI
@@ -38,7 +34,6 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-
 
 # ============================================================
 # Paths
@@ -59,7 +54,6 @@ MODEL_PATH = PROJECT_ROOT / "features" / "recording_svm.pkl"
 WINDOW_MODEL_PATH = PROJECT_ROOT / "features" / "window_svm.pkl"
 LABEL_MAP_PATH = PROJECT_ROOT / "features" / "label_map.json"
 
-
 # ============================================================
 # Configuration
 # ============================================================
@@ -70,13 +64,11 @@ TOP_K = 5
 BIRDNET_EMBEDDING_DIM = 1024
 RECORDING_EMBEDDING_DIM = 3072
 
-
 # ============================================================
 # FastAPI application
 # ============================================================
 
 app = FastAPI(title="BirdEar")
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,7 +78,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ============================================================
 # Global model objects
 # ============================================================
@@ -95,7 +86,6 @@ model = None
 window_model = None
 classes: dict[int, str] = {}
 analyzer: Optional[Analyzer] = None
-
 
 # ============================================================
 # Startup — load models ONCE
@@ -229,7 +219,6 @@ def load_model() -> None:
     print("=" * 60)
     print()
 
-
 # ============================================================
 # Softmax
 # ============================================================
@@ -244,13 +233,10 @@ def softmax(x: np.ndarray) -> np.ndarray:
     """
 
     x = np.asarray(x, dtype=np.float64)
-
     x = x - np.max(x)
-
     exp_x = np.exp(x)
 
     return exp_x / np.sum(exp_x)
-
 
 # ============================================================
 # Normalize rows
@@ -269,7 +255,6 @@ def l2_normalize_rows(x: np.ndarray) -> np.ndarray:
 
     return x / np.maximum(norms, 1e-12)
 
-
 # ============================================================
 # Frontend
 # ============================================================
@@ -277,6 +262,18 @@ def l2_normalize_rows(x: np.ndarray) -> np.ndarray:
 @app.get("/")
 def serve_index():
     return FileResponse(STATIC_DIR / "index.html")
+
+def estimate_approximate_count(events):
+    """
+    Estimate the number of distinct acoustic events for one species.
+
+    This is an acoustic-event count, not a guaranteed count of individual
+    birds. Each merged temporal event is treated as one occurrence.
+    """
+    if not events:
+        return 0
+
+    return len(events)
 
 def detect_species_events(
     segment_data,
@@ -286,7 +283,8 @@ def detect_species_events(
     step_size=2,
     confidence_threshold=0.05,
     top_n=1,
-    merge_gap_seconds=2.0
+    merge_gap_seconds=2.0,
+    occurrence_gap_seconds=15.0
 ):
     if not segment_data:
         return []
@@ -321,7 +319,6 @@ def detect_species_events(
     max_window_confidence = 0.0
 
     for start_idx, end_idx in window_ranges:
-
         window_embeddings = embeddings[start_idx:end_idx]
 
         # Same 3072-D pooling used during window-SVM training
@@ -387,7 +384,6 @@ def detect_species_events(
         )
 
         for index in top_indices:
-
             confidence = float(
                 probabilities[index]
             )
@@ -434,7 +430,6 @@ def detect_species_events(
     species_events = []
 
     for species, detections in detections_by_species.items():
-
         detections.sort(
             key=lambda x: x["start_time"]
         )
@@ -442,7 +437,6 @@ def detect_species_events(
         merged_events = []
 
         for detection in detections:
-
             if not merged_events:
                 merged_events.append(
                     {
@@ -482,15 +476,61 @@ def detect_species_events(
                     }
                 )
 
+        # --------------------------------------------------------
+        # Approximate temporal occurrence counting
+        # --------------------------------------------------------
+        #
+        # event_count:
+        #     Number of acoustically distinct events after
+        #     overlapping/nearby classifier windows are merged.
+        #
+        # estimated_count:
+        #     Number of temporally separated acoustic occurrences.
+        #
+        # IMPORTANT:
+        #     This is NOT an exact individual-bird count.
+        #     The same bird may produce multiple occurrences
+        #     separated by a long silence.
+        # --------------------------------------------------------
+
+        occurrence_count = 0
+
+        if merged_events:
+            occurrence_count = 1
+
+            for previous_event, current_event in zip(
+                merged_events,
+                merged_events[1:]
+            ):
+                gap = (
+                    current_event["start_time"]
+                    - previous_event["end_time"]
+                )
+
+                if gap > occurrence_gap_seconds:
+                    occurrence_count += 1
+
         species_events.append(
             {
                 "species": species,
+
+                # Raw number of temporally distinct acoustic events
                 "event_count": len(merged_events),
-                "estimated_count": len(merged_events),
+
+                # Approximate number of separated acoustic occurrences
+                "estimated_count": occurrence_count,
+
+                # Expose the uncertainty explicitly
+                "count_note": (
+                    "Approximate acoustic occurrence count. "
+                    "The same bird may produce multiple occurrences."
+                ),
+
                 "confidence": max(
                     event["confidence"]
                     for event in merged_events
                 ),
+
                 "events": merged_events
             }
         )
@@ -594,7 +634,6 @@ async def predict(file: UploadFile = File(...)):
     tmp_path = None
 
     try:
-
         # ====================================================
         # Save uploaded audio temporarily
         # ====================================================
@@ -658,7 +697,6 @@ async def predict(file: UploadFile = File(...)):
             recording.embeddings,
             start=1,
         ):
-
             # IMPORTANT:
             # Do NOT use:
             #
@@ -702,6 +740,7 @@ async def predict(file: UploadFile = File(...)):
                         )
                     },
                 )
+
             start_time = seg.get("start_time")
             end_time = seg.get("end_time")
 
@@ -711,6 +750,7 @@ async def predict(file: UploadFile = File(...)):
                     "missing timestamp"
                 )
                 continue
+
             segment_vectors.append(arr)
 
             segment_data.append(
@@ -740,7 +780,6 @@ async def predict(file: UploadFile = File(...)):
                     )
                 },
             )
-
 
         # ====================================================
         # Build segment matrix
@@ -888,6 +927,7 @@ async def predict(file: UploadFile = File(...)):
                     )
                 },
             )
+
         # ====================================================
         # Top-K predictions
         # ====================================================
@@ -899,7 +939,6 @@ async def predict(file: UploadFile = File(...)):
         predictions = []
 
         for idx in top_indices:
-
             idx = int(idx)
 
             # SVC class ordering is represented by
@@ -939,6 +978,7 @@ async def predict(file: UploadFile = File(...)):
                 f"{prediction['species']} "
                 f"({prediction['confidence'] * 100:.2f}%)"
             )
+
         print("[PREDICT] Detecting temporal species events...")
 
         species_detected = detect_species_events(
@@ -949,7 +989,8 @@ async def predict(file: UploadFile = File(...)):
             step_size=2,
             confidence_threshold=0.20,
             top_n=1,
-            merge_gap_seconds=2.0
+            merge_gap_seconds=2.0,
+            occurrence_gap_seconds=15.0
         )
 
         print("[PREDICT] Detected species events:")
@@ -968,13 +1009,22 @@ async def predict(file: UploadFile = File(...)):
         # Return JSON to frontend
         # ====================================================
 
+        total_approximate_count = sum(
+            item["estimated_count"]
+            for item in species_detected
+        )
+
         return {
             "predictions": predictions,
-            "species_detected": species_detected
+            "species_detected": species_detected,
+            "total_approximate_count": total_approximate_count,
+            "count_note": (
+                "Approximate acoustic-event count; it does not guarantee "
+                "the number of individual birds."
+            )
         }
 
     except Exception as e:
-
         import traceback
 
         print()
@@ -992,25 +1042,20 @@ async def predict(file: UploadFile = File(...)):
         )
 
     finally:
-
         # ====================================================
         # Delete temporary audio file
         # ====================================================
 
         if tmp_path is not None:
-
             try:
-
                 if tmp_path.exists():
                     tmp_path.unlink()
 
             except Exception as cleanup_error:
-
                 print(
                     "[WARN] Could not delete temporary "
                     f"file: {cleanup_error}"
                 )
-
 
 # ============================================================
 # Static files
