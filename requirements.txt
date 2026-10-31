@@ -1,32 +1,31 @@
-# ==============================================================================
-# BirdEar - Project Dependencies
-# ==============================================================================
-# NOTE: System requirement for audio decoding:
-#   Ubuntu/Debian: sudo apt update && sudo apt install -y ffmpeg
-#   Conda:         conda install -c conda-forge ffmpeg -y
+# Tested on Python 3.12 (3.11 also fine; TensorFlow does not support 3.13/3.14 yet).
+# System: ffmpeg must be on PATH.
 #
-# Recommended Python version: Python 3.12 (via Conda or virtualenv)
-# ==============================================================================
+#   uv venv --python 3.12 .venv && source .venv/bin/activate.fish
+#   uv pip install -r requirements.txt && uv pip install -e .
 
-# --- Web Serving & Inference ---
-fastapi>=0.110.0
-uvicorn>=0.28.0
-python-multipart>=0.0.9
+# BirdNET backbone
+tensorflow-cpu==2.21.0
+birdnetlib==0.18.1
+# birdnetlib imports these but does not declare them
+librosa==1.0.0
+resampy==0.4.3
+audioread==3.1.0
+soundfile==0.14.0
 
+# data / training
+numpy==2.5.4
+pandas==3.1.0
+scikit-learn==1.9.1
+joblib==1.6.0
+tqdm==4.70.1
+requests==2.34.2
 
-# --- Audio Processing & BirdNET Feature Extractor ---
-birdnetlib>=0.18.0
-tensorflow-cpu>=2.16.0
-audioread>=3.0.0
-resampy>=0.4.3
-librosa>=0.10.0
-soundfile>=0.12.1
-numpy>=1.26.0
+# serving
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.32
 
-# --- Pipeline, Training & Evaluation ---
-torch>=2.2.0
-scikit-learn>=1.4.0
-pandas>=2.2.0
-tqdm>=4.66.0
-requests>=2.31.0
-
+# dev
+pytest
+httpx==0.28.1

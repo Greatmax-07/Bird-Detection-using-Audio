@@ -1,46 +1,30 @@
-# dataset related files
-dataset/
-ibc53/
-xc_downloads/
-_excluded/
+# data and generated artefacts
+data/
+features/
+xc_*/
+*.pkl
 
-# Model checkpoints / trained weights
-checkpoints/
-checkpoints_v2/
-*.pt
-*.pth
-
-# Python cache
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Temporary files
-*.tmp
-*.temp
-temp.txt
-test.txt
-
-# OS / editor files
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-
-# Python virtual environments
+# environments / caches
 .venv/
 venv/
 env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
 
-# Logs
+# editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# misc
 *.log
-
-# project assets
+*.tmp
+temp.txt
 handoff.md
-
-# model files and extracted training embeddings, except the label map
-features/*
-!features/label_map.json
+ref/
+ref/
+testing audios/

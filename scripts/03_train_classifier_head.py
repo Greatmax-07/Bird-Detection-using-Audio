@@ -1,424 +1,92 @@
-import os
-import json
+"""
+03_train_classifier_head.py
+===========================
+Recording-level species classifier: pooled (mean|max|std) BirdNET embedding of
+the WHOLE recording -> RBF SVM. Answers "which species is this recording?".
+
+    python scripts/03_train_classifier_head.py
+
+Reads  features/{X,y}.npy, manifest.csv, label_map.json  (from script 02)
+Writes features/recording_svm.pkl, recording_validation_predictions.csv,
+       model_meta.json (section "recording")
+Uses the SAME recording-level split as script 04 (birdear.core.recording_split).
+"""
 import argparse
+import sys
+from pathlib import Path
+
+import joblib
 import numpy as np
 import pandas as pd
-
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import normalize
-from sklearn.metrics import (
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score
-)
+import sklearn
+from sklearn.metrics import accuracy_score, classification_report, f1_score
 from sklearn.svm import SVC
 
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("--features_dir", type=str, default="features")
-
-    parser.add_argument("--C", type=float, default=10.0)
-    parser.add_argument("--gamma", type=str, default="scale")
-
-    parser.add_argument("--test_frac", type=float, default=0.2)
-    parser.add_argument("--seed", type=int, default=42)
-
-    return parser.parse_args()
-
-
-def aggregate_recordings(X, y, manifest):
-    """
-    Convert segment-level BirdNET embeddings into
-    one embedding per original recording.
-
-    For each recording:
-        1. collect all segment embeddings
-        2. L2-normalize each embedding
-        3. average the normalized embeddings
-        4. L2-normalize the final recording embedding
-    """
-
-    manifest = manifest.copy()
-
-    required_columns = [
-        "filepath",
-        "class"
-    ]
-
-    for column in required_columns:
-        if column not in manifest.columns:
-            raise ValueError(
-                f"manifest.csv is missing required column: {column}"
-            )
-
-    if len(X) != len(y) or len(X) != len(manifest):
-        raise ValueError(
-            f"Length mismatch:\n"
-            f"X: {len(X)}\n"
-            f"y: {len(y)}\n"
-            f"manifest: {len(manifest)}"
-        )
-
-    recording_embeddings = []
-    recording_labels = []
-    recording_paths = []
-
-    grouped = manifest.groupby("filepath", sort=False)
-
-    for filepath, indices in grouped.groups.items():
-
-        indices = np.asarray(list(indices))
-
-        recording_X = X[indices]
-
-        # Normalize each segment embedding
-        recording_X = normalize(
-            recording_X,
-            norm="l2",
-            axis=1
-        )
-
-        # Mean + max + standard deviation pooling
-        mean_embedding = np.mean(recording_X, axis=0)
-        max_embedding = np.max(recording_X, axis=0)
-        std_embedding = np.std(recording_X, axis=0)
-
-        recording_embedding = np.concatenate(
-            [mean_embedding, max_embedding, std_embedding]
-        )
-
-        # Normalize final recording embedding
-        recording_embedding = normalize(
-            recording_embedding.reshape(1, -1),
-            norm="l2"
-        )[0]
-
-        recording_embeddings.append(recording_embedding)
-
-        # Every segment from one recording must have the same label
-        recording_labels.append(y[indices[0]])
-        recording_paths.append(filepath)
-
-    X_recordings = np.asarray(
-        recording_embeddings,
-        dtype=np.float32
-    )
-
-    y_recordings = np.asarray(
-        recording_labels,
-        dtype=np.int64
-    )
-
-    recording_paths = np.asarray(
-        recording_paths,
-        dtype=object
-    )
-
-    return X_recordings, y_recordings, recording_paths
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from birdear.core import (  # noqa: E402
+    FEATURES_DIR, class_names_from_label_map, load_label_map, pool_segments,
+    recording_split, update_meta,
+)
 
 
 def main():
-
-    args = parse_args()
-
-    features_dir = args.features_dir
-
-    X_path = os.path.join(
-        features_dir,
-        "X.npy"
-    )
-
-    y_path = os.path.join(
-        features_dir,
-        "y.npy"
-    )
-
-    label_map_path = os.path.join(
-        features_dir,
-        "label_map.json"
-    )
-
-    manifest_path = os.path.join(
-        features_dir,
-        "manifest.csv"
-    )
-
-    print("=" * 70)
-    print("BIRD SPECIES CLASSIFICATION")
-    print("Recording-Level BirdNET Classifier")
-    print("=" * 70)
-
-    # ---------------------------------------------------------
-    # LOAD DATA
-    # ---------------------------------------------------------
-
-    print("\nLoading data...")
-
-    X = np.load(X_path)
-    y = np.load(y_path)
-
-    with open(label_map_path, "r", encoding="utf-8") as f:
-        label_map = json.load(f)
-
-    manifest = pd.read_csv(manifest_path)
-
-    print(f"Segment embeddings: {len(X)}")
-    print(f"Embedding dimension: {X.shape[1]}")
-    print(f"Original classes: {len(label_map)}")
-    print(f"Manifest rows: {len(manifest)}")
-
-    # ---------------------------------------------------------
-    # AGGREGATE SEGMENTS INTO RECORDINGS
-    # ---------------------------------------------------------
-
-    print("\nAggregating embeddings by recording...")
-
-    X_rec, y_rec, paths = aggregate_recordings(
-        X,
-        y,
-        manifest
-    )
-
-    print(f"Unique recordings: {len(X_rec)}")
-    print(f"Recording embedding dimension: {X_rec.shape[1]}")
-
-    # ---------------------------------------------------------
-    # VERIFY LABEL CONSISTENCY
-    # ---------------------------------------------------------
-
-    print("\nChecking recording labels...")
-
-    inconsistent_recordings = 0
-
-    for filepath, indices in manifest.groupby("filepath").groups.items():
-
-        indices = np.asarray(list(indices))
-
-        labels = np.unique(y[indices])
-
-        if len(labels) != 1:
-            inconsistent_recordings += 1
-            print(
-                f"[WARNING] Multiple labels found for: {filepath}"
-            )
-
-    if inconsistent_recordings == 0:
-        print("All recordings have consistent labels.")
-    else:
-        raise ValueError(
-            f"Found {inconsistent_recordings} recordings "
-            f"with inconsistent labels."
-        )
-
-    # ---------------------------------------------------------
-    # RECORDING-LEVEL TRAIN / VALIDATION SPLIT
-    # ---------------------------------------------------------
-
-    print("\nCreating recording-level split...")
-
-    (
-        X_train,
-        X_val,
-        y_train,
-        y_val,
-        paths_train,
-        paths_val
-    ) = train_test_split(
-        X_rec,
-        y_rec,
-        paths,
-        test_size=args.test_frac,
-        random_state=args.seed,
-        stratify=y_rec
-    )
-
-    # ---------------------------------------------------------
-    # VERIFY NO RECORDING LEAKAGE
-    # ---------------------------------------------------------
-
-    train_paths = set(paths_train)
-    val_paths = set(paths_val)
-
-    overlap = train_paths.intersection(val_paths)
-
-    print(f"\nTraining recordings:   {len(train_paths)}")
-    print(f"Validation recordings: {len(val_paths)}")
-    print(f"Recording overlap:     {len(overlap)}")
-
-    if len(overlap) != 0:
-        raise RuntimeError(
-            "Recording leakage detected!"
-        )
-
-    # ---------------------------------------------------------
-    # TRAIN SVM
-    # ---------------------------------------------------------
-
-    print("\nTraining SVM...")
-    print(f"C = {args.C}")
-    print(f"gamma = {args.gamma}")
-
-    model = SVC(
-        C=args.C,
-        gamma=args.gamma,
-        kernel="rbf",
-        class_weight="balanced",
-        probability=True,
-        random_state=args.seed
-    )
-
-    model.fit(
-        X_train,
-        y_train
-    )
-
-    print("Training complete.")
-
-    # ---------------------------------------------------------
-    # VALIDATION
-    # ---------------------------------------------------------
-
-    print("\nRunning validation...")
-
-    y_pred = model.predict(X_val)
-
-    accuracy = accuracy_score(
-        y_val,
-        y_pred
-    )
-
-    macro_f1 = f1_score(
-        y_val,
-        y_pred,
-        average="macro",
-        zero_division=0
-    )
-
-    weighted_f1 = f1_score(
-        y_val,
-        y_pred,
-        average="weighted",
-        zero_division=0
-    )
-
-    print("\n" + "=" * 70)
-    print("RESULTS")
-    print("=" * 70)
-
-    print(f"\nAccuracy:    {accuracy:.4f}")
-    print(f"Macro F1:    {macro_f1:.4f}")
-    print(f"Weighted F1: {weighted_f1:.4f}")
-
-    # ---------------------------------------------------------
-    # CLASSIFICATION REPORT
-    # ---------------------------------------------------------
-
-    if isinstance(label_map, dict):
-    # Handle either {"0": "species"} or {"species": 0}
-        if all(str(i) in label_map for i in range(len(label_map))):
-            class_names = [
-                label_map[str(i)]
-                for i in range(len(label_map))
-            ]
-        else:
-            class_names = [
-                name
-                for name, _ in sorted(
-                    label_map.items(),
-                    key=lambda item: item[1]
-                )
-            ]
-    else:
-        raise ValueError("Unexpected label_map format.")
-
-    print("\nClassification Report:")
-    print(
-        classification_report(
-            y_val,
-            y_pred,
-            labels=np.arange(len(class_names)),
-            target_names=class_names,
-            zero_division=0
-        )
-    )
-
-    # ---------------------------------------------------------
-    # SAVE MODEL
-    # ---------------------------------------------------------
-
-    import joblib
-
-    model_path = os.path.join(
-        features_dir,
-        "recording_svm.pkl"
-    )
-
-    joblib.dump(
-        model,
-        model_path
-    )
-
-    print(f"\nModel saved to:")
-    print(model_path)
-
-    # ---------------------------------------------------------
-    # SAVE VALIDATION PREDICTIONS
-    # ---------------------------------------------------------
-
-    results = pd.DataFrame({
-        "filepath": paths_val,
-        "true_label": y_val,
-        "predicted_label": y_pred
-    })
-
-    class_names = [
-    name
-    for name, class_id in sorted(
-        label_map.items(),
-        key=lambda item: item[1]
-    )
-    ]
-
-    results["true_class"] = results["true_label"].map(
-        lambda x: class_names[int(x)]
-    )
-
-    results["predicted_class"] = results["predicted_label"].map(
-        lambda x: class_names[int(x)]
-    )
-
-    results_path = os.path.join(
-        features_dir,
-        "recording_validation_predictions.csv"
-    )
-
-    results.to_csv(
-        results_path,
-        index=False
-    )
-
-    print(f"Validation predictions saved to:")
-    print(results_path)
-
-    # ---------------------------------------------------------
-    # SUMMARY
-    # ---------------------------------------------------------
-
-    print("\n" + "=" * 70)
-    print("SUMMARY")
-    print("=" * 70)
-
-    print(f"Recordings:       {len(X_rec)}")
-    print(f"Classes:          {len(class_names)}")
-    print(f"Train recordings: {len(X_train)}")
-    print(f"Val recordings:   {len(X_val)}")
-    print(f"Accuracy:         {accuracy:.2%}")
-    print(f"Macro F1:         {macro_f1:.4f}")
-    print(f"Weighted F1:      {weighted_f1:.4f}")
-    print("=" * 70)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--features_dir", default=str(FEATURES_DIR))
+    ap.add_argument("--C", type=float, default=10.0)
+    ap.add_argument("--gamma", default="scale")
+    ap.add_argument("--test_frac", type=float, default=0.2)
+    ap.add_argument("--seed", type=int, default=42)
+    args = ap.parse_args()
+
+    fdir = Path(args.features_dir)
+    X = np.load(fdir / "X.npy")
+    y = np.load(fdir / "y.npy")
+    manifest = pd.read_csv(fdir / "manifest.csv")
+    names = class_names_from_label_map(load_label_map(fdir))
+    if not (len(X) == len(y) == len(manifest)):
+        raise SystemExit("X, y and manifest.csv lengths differ - rerun script 02")
+
+    # one pooled vector per recording
+    paths, labels, feats = [], [], []
+    for path, idx in manifest.groupby("filepath", sort=True).indices.items():
+        idx = idx[np.argsort(manifest["start_time"].to_numpy()[idx])]
+        if len(set(y[idx])) != 1:
+            raise SystemExit(f"recording with several labels: {path}")
+        paths.append(path)
+        labels.append(int(y[idx[0]]))
+        feats.append(pool_segments(X[idx]))
+    paths, labels, feats = np.array(paths, dtype=object), np.array(labels), np.stack(feats)
+    print(f"{len(paths)} recordings, {len(names)} classes, feature dim {feats.shape[1]}")
+
+    train, val = recording_split(paths, labels, args.test_frac, args.seed)
+    tr = np.array([p in train for p in paths])
+    va = np.array([p in val for p in paths])
+    print(f"train {tr.sum()} / val {va.sum()} recordings")
+
+    model = SVC(C=args.C, gamma=args.gamma, kernel="rbf", class_weight="balanced",
+                probability=True, random_state=args.seed)
+    model.fit(feats[tr], labels[tr])
+    pred = model.predict(feats[va])
+
+    acc = accuracy_score(labels[va], pred)
+    macro = f1_score(labels[va], pred, average="macro", zero_division=0)
+    weighted = f1_score(labels[va], pred, average="weighted", zero_division=0)
+    print(classification_report(labels[va], pred, labels=np.arange(len(names)),
+                                target_names=names, zero_division=0))
+    print(f"accuracy {acc:.4f}  macro-F1 {macro:.4f}  weighted-F1 {weighted:.4f}")
+
+    joblib.dump(model, fdir / "recording_svm.pkl")
+    pd.DataFrame({
+        "filepath": paths[va], "true_class": [names[i] for i in labels[va]],
+        "predicted_class": [names[i] for i in pred],
+    }).to_csv(fdir / "recording_validation_predictions.csv", index=False)
+    update_meta("recording", {
+        "n_classes": len(names), "n_train": int(tr.sum()), "n_val": int(va.sum()),
+        "accuracy": acc, "macro_f1": macro, "weighted_f1": weighted,
+        "C": args.C, "gamma": args.gamma, "seed": args.seed, "test_frac": args.test_frac,
+        "sklearn_version": sklearn.__version__,
+    }, fdir)
+    print(f"saved {fdir / 'recording_svm.pkl'}")
 
 
 if __name__ == "__main__":

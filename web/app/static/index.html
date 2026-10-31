@@ -391,7 +391,7 @@
 
     <header>
       <h1>BirdEar</h1>
-      <p>Indian Bird Sound Identifier — 83 species</p>
+      <p>Indian Bird Sound Identifier — <span id="species-count">…</span> species</p>
     </header>
 
     <div id="upload-state">
@@ -402,10 +402,10 @@
           <line x1="12" y1="18" x2="12" y2="22"/>
           <line x1="8"  y1="22" x2="16" y2="22"/>
         </svg>
-        <p>Drop an audio file or click to upload<br><span style="font-size:12px;">.wav or .mp3 only</span></p>
+        <p>Drop an audio file or click to upload<br><span style="font-size:12px;">.wav .mp3 .flac .ogg .m4a</span></p>
       </div>
 
-      <input type="file" id="file-input" accept=".wav,.mp3,audio/wav,audio/mpeg" />
+      <input type="file" id="file-input" accept=".wav,.mp3,.flac,.ogg,.m4a,audio/*" />
 
       <button id="record-btn">
         <span class="rec-dot"></span>
@@ -1439,5 +1439,10 @@ retryBtn.addEventListener(
 );
 </script>
 
+<script>
+fetch("/health").then(r => r.json()).then(h => {
+  document.getElementById("species-count").textContent = h.n_classes;
+}).catch(() => {});
+</script>
 </body>
 </html>
