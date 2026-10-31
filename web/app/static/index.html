@@ -1076,21 +1076,29 @@ function seekTo(seconds, play = false) {
    RENDER RESULTS
    ========================================================= */
 
-function renderResults(predictions, speciesDetected) {
+function renderResults(predictions, speciesDetected, noConfident) {
     const top = predictions && predictions[0];
+    const found = speciesDetected || [];
+    const multi = found.length > 1;
 
-    if (top) {
-        topSpecies.textContent = top.species;
-
-        topConfidence.textContent =
-            `${Math.round(top.confidence * 100)}% model score`;
-
+    if (noConfident || found.length === 0) {
+        topSpecies.textContent = 'No confident bird detected';
+        topConfidence.textContent = top
+            ? `Closest weak match: ${top.species} (${Math.round(top.confidence * 100)}%)`
+            : '';
         topDescription.textContent =
-            'Most likely species across the complete recording.';
+            'No species reached the detection threshold. The clip may be noise, silence, or a species the model does not know.';
+    } else if (multi) {
+        topSpecies.textContent = `${found.length} species detected`;
+        topConfidence.textContent = found.map((d) => d.species).join(' \u00b7 ');
+        topDescription.textContent =
+            'Species found anywhere in the recording. See the timeline below for when each was heard.';
     } else {
-        topSpecies.textContent = 'No species detected';
-        topConfidence.textContent = '';
-        topDescription.textContent = '';
+        topSpecies.textContent = found[0].species;
+        topConfidence.textContent =
+            `${Math.round(found[0].confidence * 100)}% detection score`;
+        topDescription.textContent =
+            'The only species detected in this recording.';
     }
 
 
@@ -1100,19 +1108,22 @@ function renderResults(predictions, speciesDetected) {
 
     otherPreds.innerHTML = '';
 
-    if (predictions && predictions.length > 1) {
+    const startAt = (multi || noConfident || found.length === 0) ? 0 : 1;
+    const showOthers = !(noConfident || found.length === 0) && predictions && predictions.length > startAt;
+
+    if (showOthers) {
         const heading = document.createElement('div');
 
         heading.style.cssText =
             'font-size:13px;color:#9aa1b1;margin-bottom:14px;';
 
         heading.textContent =
-            'Other recording-level predictions';
+            multi ? 'Strongest scores across the recording' : 'Other strong scores across the recording';
 
         otherPreds.appendChild(heading);
     }
 
-    (predictions || []).slice(1, 5).forEach((p) => {
+    (showOthers ? predictions.slice(startAt, 5) : []).forEach((p) => {
         const row = document.createElement('div');
 
         row.className = 'pred-row';
@@ -1412,7 +1423,8 @@ identifyBtn.addEventListener('click', async () => {
 
         renderResults(
             data.predictions,
-            data.species_detected || []
+            data.species_detected || [],
+            data.no_confident_detection === true
         );
 
 

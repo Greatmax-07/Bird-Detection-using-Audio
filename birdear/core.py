@@ -2,10 +2,10 @@
 Single source of truth for everything that must be IDENTICAL between
 training (scripts/02-04) and serving (web/app/main.py):
 
-    - constants (segment length, window size/step, dimensions)
+    - constants (segment length, dimensions)
     - BirdNET loading + embedding extraction
     - L2-normalise -> mean|max|std pooling -> L2-normalise
-    - sliding-window ranges
+    - BirdNET's native per-species scores for our classes
     - the shared recording-level train/validation split
     - model metadata (label-map hash) used to refuse mismatched models
 """
@@ -28,8 +28,6 @@ AUDIO_EXTS = {".wav", ".mp3", ".flac", ".ogg", ".m4a"}
 SEGMENT_SEC = 3.0          # BirdNET chunk length (birdnetlib, overlap=0)
 EMBED_DIM = 1024           # BirdNET v2.4 penultimate layer
 POOLED_DIM = 3 * EMBED_DIM  # mean | max | std
-WINDOW_SIZE = 5            # segments per window (15 s)
-WINDOW_STEP = 2            # segments between window starts (6 s)
 
 
 # ----------------------------------------------------------------------------
@@ -67,7 +65,7 @@ def load_species(path: Path | str = SPECIES_FILE) -> list[str]:
 
 def name_key(name: str) -> str:
     """Spelling-insensitive key: 'Paradise-flycatcher' == 'paradise flycatcher'."""
-    return "".join(ch for ch in name.lower() if ch.isalnum())
+    return "".join(ch for ch in name.lower().replace("grey", "gray") if ch.isalnum())
 
 
 def file_sha256(path: Path | str) -> str:
@@ -169,6 +167,61 @@ def extract_segments(analyzer, path: Path | str) -> list[tuple[float, float, np.
     return out
 
 
+def birdnet_label_index(analyzer, class_names: list[str]) -> np.ndarray:
+    """
+    Class names (folder slugs, e.g. 'Rock_Dove') -> index into BirdNET's label list,
+    or -1 when BirdNET has no species with that (or an alias) common name.
+    """
+    by_common: dict[str, int] = {}
+    for i, label in enumerate(analyzer.labels):          # "Genus species_Common Name"
+        by_common.setdefault(name_key(label.split("_", 1)[1]), i)
+    entries = {slugify(e[0]): e for e in load_species_entries()}
+    out = []
+    for cls in class_names:
+        names = entries.get(cls, [cls.replace("_", " ")])
+        out.append(next((by_common[name_key(n)] for n in names if name_key(n) in by_common), -1))
+    return np.asarray(out, dtype=np.int64)
+
+
+def analyze_audio(analyzer, path: Path | str, label_idx: np.ndarray, batch: int = 1):
+    """
+    ONE BirdNET pass over a file (one chunk per invoke: larger batches are slower and need
+    several GB because all intermediate tensors are preserved). Returns
+        times  (n, 2)        segment start/end seconds (3 s segments, no overlap)
+        emb    (n, 1024)     penultimate-layer embeddings
+        scores (n, C)        BirdNET's own sigmoid score for each of our C classes
+                             (0 where BirdNET has no matching species)
+    """
+    from birdnetlib import Recording
+
+    rec = Recording(analyzer, str(path))
+    rec.read_audio_data()
+    chunks = np.asarray(rec.chunks, dtype=np.float32)
+    C = len(label_idx)
+    if len(chunks) == 0:
+        return np.zeros((0, 2)), np.zeros((0, EMBED_DIM), np.float32), np.zeros((0, C), np.float32)
+
+    interp, in_idx, out_idx = analyzer.interpreter, analyzer.input_layer_index, analyzer.output_layer_index
+    logits, embs = [], []
+    for i in range(0, len(chunks), batch):
+        data = chunks[i:i + batch]
+        interp.resize_tensor_input(in_idx, [len(data), *data[0].shape])
+        interp.allocate_tensors()
+        interp.set_tensor(in_idx, data)
+        interp.invoke()
+        logits.append(interp.get_tensor(out_idx).copy())
+        embs.append(interp.get_tensor(out_idx - 1).copy())
+    logits = np.concatenate(logits)
+    emb = np.concatenate(embs).astype(np.float32)
+    sig = 1.0 / (1.0 + np.exp(-np.clip(logits, -15, 15)))
+
+    scores = np.zeros((len(chunks), C), dtype=np.float32)
+    ok = label_idx >= 0
+    scores[:, ok] = sig[:, label_idx[ok]]
+    starts = np.arange(len(chunks)) * SEGMENT_SEC
+    return np.stack([starts, starts + SEGMENT_SEC], axis=1), emb, scores
+
+
 # ----------------------------------------------------------------------------
 # features
 # ----------------------------------------------------------------------------
@@ -183,18 +236,6 @@ def pool_segments(segments: np.ndarray) -> np.ndarray:
     seg = l2_normalize(np.asarray(segments, dtype=np.float32), axis=1)
     vec = np.concatenate([seg.mean(axis=0), seg.max(axis=0), seg.std(axis=0)])
     return l2_normalize(vec).astype(np.float32)
-
-
-def window_ranges(n: int, size: int = WINDOW_SIZE, step: int = WINDOW_STEP) -> list[tuple[int, int]]:
-    """[start, end) segment index ranges. Always covers the final segment."""
-    if n <= 0:
-        return []
-    if n <= size:
-        return [(0, n)]
-    ranges = [(s, s + size) for s in range(0, n - size + 1, step)]
-    if ranges[-1][1] < n:
-        ranges.append((n - size, n))
-    return ranges
 
 
 # ----------------------------------------------------------------------------

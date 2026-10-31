@@ -2,7 +2,7 @@
 BirdEar API.
 
     GET  /          single-page UI
-    GET  /health    {status, n_classes, window_size, step_size}
+    GET  /health    {status, n_classes, n_with_birdnet_scores, params}
     POST /predict   multipart field "file" (.wav .mp3 .flac .ogg .m4a, <=30 MiB)
 
 Run from the repo root:
@@ -25,10 +25,10 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from birdear.core import (
-    AUDIO_EXTS, EMBED_DIM, FEATURES_DIR, POOLED_DIM, WINDOW_SIZE, WINDOW_STEP,
-    class_names_from_label_map, extract_segments, file_sha256, load_analyzer,
-    load_label_map, pool_segments, read_meta, window_ranges,
+    AUDIO_EXTS, EMBED_DIM, FEATURES_DIR, analyze_audio, birdnet_label_index,
+    class_names_from_label_map, file_sha256, l2_normalize, load_analyzer, load_label_map, read_meta,
 )
+from birdear.detect import DetectParams, detect_events, fuse
 
 log = logging.getLogger("birdear")
 logging.basicConfig(level=os.environ.get("BIRDEAR_LOG", "INFO"))
@@ -36,14 +36,9 @@ logging.basicConfig(level=os.environ.get("BIRDEAR_LOG", "INFO"))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
-TOP_K = 5                                   # recording-level predictions returned
-TOP_PER_WINDOW = 5                          # classes considered per window
-WINDOW_THRESHOLD = float(os.environ.get("BIRDEAR_WINDOW_THRESHOLD", 0.20))      # a species must reach this somewhere
-WINDOW_THRESHOLD_LOW = float(os.environ.get("BIRDEAR_WINDOW_THRESHOLD_LOW", 0.10))  # then windows above this are kept
-MERGE_GAP_SECONDS = 2.0                     # merge detections closer than this
-OCCURRENCE_GAP_SECONDS = 15.0               # events further apart count as new occurrence
-COUNT_NOTE = ("Approximate acoustic occurrence count. "
-              "The same bird may produce multiple occurrences.")
+TOP_K = 5                                   # strongest species scores returned in "predictions"
+COUNT_NOTE = ("Approximate acoustic occurrence count: separate stretches of calling. "
+              "It is not a count of individual birds.")
 
 state: dict = {}
 _birdnet_lock = threading.Lock()            # the TFLite interpreter is not thread-safe
@@ -54,39 +49,30 @@ _birdnet_lock = threading.Lock()            # the TFLite interpreter is not thre
 # ----------------------------------------------------------------------------
 
 def _load_state() -> None:
-    rec_path = FEATURES_DIR / "recording_svm.pkl"
-    win_path = FEATURES_DIR / "window_svm.pkl"
+    head_path = FEATURES_DIR / "segment_head.pkl"
     lm_path = FEATURES_DIR / "label_map.json"
-    missing = [p for p in (rec_path, win_path, lm_path) if not p.exists()]
+    missing = [p for p in (head_path, lm_path) if not p.exists()]
     if missing:
         raise FileNotFoundError(
-            f"Missing {[str(p) for p in missing]}. Train first: scripts/02, 03 and 04 (see README).")
+            f"Missing {[str(p) for p in missing]}. Train first: scripts/02 and 04 (see README).")
 
     meta = read_meta()
-    sha = file_sha256(lm_path)
-    for section in ("recording", "window"):
-        if meta.get(section, {}).get("label_map_sha256") != sha:
-            raise RuntimeError(
-                f"{section} model was not trained with the current features/label_map.json "
-                f"(species/ids differ). Re-run scripts/03 and 04 after script 02.")
+    if meta.get("segment", {}).get("label_map_sha256") != file_sha256(lm_path):
+        raise RuntimeError("segment head was not trained with the current features/label_map.json "
+                           "(species/ids differ). Re-run scripts/04 after script 02.")
 
     names = class_names_from_label_map(load_label_map())
-    recording_model = joblib.load(rec_path)
-    window_model = joblib.load(win_path)
-    for label, m in (("recording", recording_model), ("window", window_model)):
-        if m.n_features_in_ != POOLED_DIM:
-            raise RuntimeError(f"{label} SVM expects {m.n_features_in_} features, need {POOLED_DIM}")
-        if len(m.classes_) > len(names):
-            raise RuntimeError(f"{label} SVM has more classes than label_map.json")
+    head = joblib.load(head_path)
+    if head.n_features_in_ != EMBED_DIM or head.n_outputs_ != len(names):
+        raise RuntimeError(f"segment head shape ({head.n_features_in_} in, {head.n_outputs_} out) does not "
+                           f"match {EMBED_DIM} features / {len(names)} classes")
 
-    w = meta["window"]
-    state.update(
-        names=names, recording_model=recording_model, window_model=window_model,
-        window_size=int(w.get("window_size", WINDOW_SIZE)),
-        step_size=int(w.get("step_size", WINDOW_STEP)),
-        analyzer=load_analyzer(),
-    )
-    log.info("loaded %d classes, window %d/%d", len(names), state["window_size"], state["step_size"])
+    analyzer = load_analyzer()
+    label_idx = birdnet_label_index(analyzer, names)
+    state.update(names=names, head=head, analyzer=analyzer, label_idx=label_idx,
+                 has_bn=label_idx >= 0, params=DetectParams.from_env())
+    log.info("loaded %d classes (%d with BirdNET scores), params %s",
+             len(names), int(state["has_bn"].sum()), state["params"])
 
 
 @asynccontextmanager
@@ -105,73 +91,40 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 # ----------------------------------------------------------------------------
 
 def _species(class_id: int) -> str:
-    names = state["names"]
-    return (names[class_id] if 0 <= class_id < len(names) else f"Unknown_{class_id}").replace("_", " ")
-
-
-def detect_species_events(segments: list) -> list[dict]:
-    """Sliding-window classification -> thresholded, merged per-species events."""
-    model = state["window_model"]
-    emb = np.stack([s[2] for s in segments])
-    ranges = window_ranges(len(emb), state["window_size"], state["step_size"])
-    pooled = np.stack([pool_segments(emb[a:b]) for a, b in ranges])
-    probs = model.predict_proba(pooled)
-
-    detections: dict[str, list[dict]] = {}
-    for (a, b), p in zip(ranges, probs):
-        for i in np.argsort(p)[::-1][:TOP_PER_WINDOW]:
-            if p[i] < WINDOW_THRESHOLD_LOW:
-                continue
-            detections.setdefault(_species(int(model.classes_[i])), []).append(
-                {"start_time": segments[a][0], "end_time": segments[b - 1][1], "confidence": float(p[i])})
-
-    results = []
-    for species, dets in detections.items():
-        if max(d["confidence"] for d in dets) < WINDOW_THRESHOLD:
-            continue  # never confident anywhere in the file: ignore weak-only species
-        dets.sort(key=lambda d: d["start_time"])
-        events: list[dict] = []
-        for d in dets:
-            if events and d["start_time"] <= events[-1]["end_time"] + MERGE_GAP_SECONDS:
-                cur = events[-1]
-                cur["end_time"] = max(cur["end_time"], d["end_time"])
-                cur["confidence"] = max(cur["confidence"], d["confidence"])
-                cur["windows"] += 1
-            else:
-                events.append({**d, "windows": 1})
-        occurrences = 1 + sum(
-            1 for prev, nxt in zip(events, events[1:])
-            if nxt["start_time"] - prev["end_time"] > OCCURRENCE_GAP_SECONDS)
-        results.append({
-            "species": species, "event_count": len(events), "estimated_count": occurrences,
-            "count_note": COUNT_NOTE, "confidence": max(e["confidence"] for e in events),
-            "events": events,
-        })
-    results.sort(key=lambda r: r["confidence"], reverse=True)
-    return results
+    return state["names"][class_id].replace("_", " ")
 
 
 def analyze_file(path: Path) -> dict:
     try:
         with _birdnet_lock:
-            segments = extract_segments(state["analyzer"], path)
+            times, emb, bn = analyze_audio(state["analyzer"], path, state["label_idx"])
     except AudioFormatError as e:
         raise ValueError(f"Could not decode the audio file ({e}).") from e
-    if not segments:
-        raise ValueError("No BirdNET embeddings could be extracted from the audio.")
+    if len(times) == 0:
+        raise ValueError("The audio is too short to analyse (need at least 3 seconds).")
 
-    model = state["recording_model"]
-    probs = model.predict_proba(pool_segments(np.stack([s[2] for s in segments])).reshape(1, -1))[0]
-    predictions = [
-        {"species": _species(int(model.classes_[i])), "confidence": float(probs[i])}
-        for i in np.argsort(probs)[::-1][:TOP_K]
-    ]
-    detected = detect_species_events(segments)
+    params = state["params"]
+    p_head = state["head"].predict_proba(l2_normalize(emb, axis=1))
+    fused = fuse(p_head, bn, state["has_bn"], params.w_birdnet)
+    events = detect_events(times, fused, params)
+
+    detected = [{
+        "species": _species(k), "event_count": len(ev), "estimated_count": len(ev),
+        "count_note": COUNT_NOTE, "confidence": max(e["confidence"] for e in ev),
+        "events": [{**e, "windows": e["segments"]} for e in ev],   # "windows" kept for older UIs
+    } for k, ev in events.items()]
+    detected.sort(key=lambda d: d["confidence"], reverse=True)
+
+    peak = fused.max(axis=0)
+    predictions = [{"species": _species(int(k)), "confidence": float(peak[k])}
+                   for k in np.argsort(peak)[::-1][:TOP_K]]
     return {
         "predictions": predictions,
         "species_detected": detected,
+        "no_confident_detection": not detected,
         "total_approximate_count": sum(d["estimated_count"] for d in detected),
-        "count_note": "Approximate acoustic-event count; it does not guarantee the number of individual birds.",
+        "count_note": COUNT_NOTE,
+        "duration_seconds": float(times[-1, 1]),
     }
 
 
@@ -187,7 +140,7 @@ def index():
 @app.get("/health")
 def health():
     return {"status": "ok", "n_classes": len(state["names"]),
-            "window_size": state["window_size"], "step_size": state["step_size"]}
+            "n_with_birdnet_scores": int(state["has_bn"].sum()), "params": state["params"].as_dict()}
 
 
 @app.post("/predict")
