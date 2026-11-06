@@ -1,0 +1,84 @@
+# Birds commonly found in Maharashtra (the original project list, 71 species).
+# One species per line, spelled as on xeno-canto.org. '#' lines are group headers.
+# 'A | B | C' lists alternative xeno-canto spellings of ONE species (first = class/folder name).
+# Check names with:  python scripts/01_download_weak_species.py --preview
+
+# --- Urban / commensal
+Rock Dove | Rock Pigeon
+Spotted Dove
+Eurasian Collared Dove
+House Sparrow
+House Crow
+Large-billed Crow
+Common Myna
+Bank Myna
+Rose-ringed Parakeet
+Asian Koel
+Red-vented Bulbul
+Red-whiskered Bulbul
+Oriental Magpie-Robin
+Purple Sunbird
+Barn Swallow
+
+# --- Forest / open country
+Indian Peafowl
+Indian Roller
+White-throated Kingfisher
+Pied Kingfisher
+Stork-billed Kingfisher
+Coppersmith Barbet
+Common Hawk-Cuckoo
+Greater Coucal
+Indian Grey Hornbill
+Black Drongo
+Ashy Drongo
+White-browed Fantail
+Indian Paradise Flycatcher | Indian Paradise-flycatcher | Asian Paradise-flycatcher | Asian Paradise Flycatcher
+Tickell's Blue Flycatcher
+Indian Robin
+Jungle Babbler
+Yellow-billed Babbler
+Common Tailorbird
+Zitting Cisticola
+Baya Weaver
+Scaly-breasted Munia
+Indian Silverbill
+Spotted Owlet
+Indian Nightjar
+Common Iora
+
+# --- Western Ghats / Sahyadri
+Malabar Whistling Thrush
+Orange-headed Thrush
+Indian Scimitar Babbler
+Tawny-bellied Babbler
+Verditer Flycatcher
+Asian Brown Flycatcher
+Malabar Trogon
+
+# --- Raptors
+Shikra
+Black Kite
+Brahminy Kite
+Crested Serpent Eagle
+Changeable Hawk-Eagle
+
+# --- Wetland / waterside
+Indian Pond Heron
+Little Egret
+Green Bee-eater | Asian Green Bee-eater
+Blue-tailed Bee-eater
+
+# --- Additional common Maharashtra species
+Jungle Owlet
+Indian Cuckoo
+Black-rumped Flameback | Lesser Goldenback
+White-rumped Munia
+Ashy Prinia
+Plain Prinia
+Jungle Prinia
+Paddyfield Pipit
+Small Minivet
+Scarlet Minivet
+Common Kingfisher
+Brown-headed Barbet
