@@ -3,6 +3,8 @@ data/
 features/
 xc_*/
 *.pkl
+_excluded/
+ibc53/
 
 # environments / caches
 .venv/
